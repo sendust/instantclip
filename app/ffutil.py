@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+import os
 import re
 import shlex
 import signal
@@ -125,6 +126,51 @@ async def list_decklink(ffmpeg: str) -> list[str]:
     rc, out, err = await run_capture([ffmpeg, "-hide_banner", "-sources", "decklink"])
     names = re.findall(r"\[([^\]]+)\]", out + err)
     return [n for n in names if n.lower().startswith("decklink") or "intensity" in n.lower()] or names
+
+
+def decklink_holders() -> dict[str, set[int]]:
+    """/dev/blackmagic/ioN -> pids that have it open. Only processes whose fd table we may read
+    (same user) are seen; the root-owned Blackmagic helpers are skipped that way too."""
+    out: dict[str, set[int]] = {}
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        try:
+            fds = os.listdir(f"/proc/{pid}/fd")
+        except OSError:
+            continue
+        for fd in fds:
+            try:
+                link = os.readlink(f"/proc/{pid}/fd/{fd}")
+            except OSError:
+                continue
+            if link.startswith("/dev/blackmagic/"):
+                out.setdefault(link, set()).add(int(pid))
+    return out
+
+
+def describe_pid(pid: int) -> str:
+    """'ffmpeg (pid 123, mediarouter)': the command plus the working dir name of its parent."""
+    try:
+        comm = Path(f"/proc/{pid}/comm").read_text().strip()
+    except OSError:
+        return f"pid {pid}"
+    owner = ""
+    for p in (ppid_of(pid), pid):   # who launched it says more than "ffmpeg"
+        try:
+            owner = os.path.basename(os.readlink(f"/proc/{p}/cwd"))
+        except OSError:
+            continue
+        if owner:
+            break
+    return f"{comm} (pid {pid}{', ' + owner if owner else ''})"
+
+
+def ppid_of(pid: int) -> int:
+    try:
+        return int(Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[1])
+    except (OSError, ValueError, IndexError):
+        return 0
 
 
 _probe_cache: dict[tuple, dict] = {}

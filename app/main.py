@@ -150,7 +150,10 @@ async def record_extend(r: DeviceReq):
 
 @app.post("/api/record/preview")
 async def record_preview(r: PreviewReq):
-    await _channel(r.device).set_preview(r.on)
+    try:
+        await _channel(r.device).set_preview(r.on)
+    except RuntimeError as e:
+        raise HTTPException(409, str(e))
     return {"ok": True}
 
 

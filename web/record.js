@@ -40,12 +40,15 @@ const Record = {
     if (sel.options.length !== names.length || names.some((n, i) => sel.options[i].value !== n)) {
       sel.innerHTML = names.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
     }
-    if (!names.includes(this.device)) this.device = names[0] || "";
+    if (!names.includes(this.device)) this.device = (list.find((c) => !c.busy) || list[0] || {}).device || "";
     sel.value = this.device;
-    // mark channels that are busy so the operator sees them in the list
+    // mark channels in use: ours (REC / LIVE) and ones another process holds (greyed, not selectable)
     list.forEach((c, i) => {
-      const tag = c.mode === "recording" ? " ● REC" : c.mode === "preview" ? " ◉ LIVE" : "";
-      if (sel.options[i].textContent !== c.device + tag) sel.options[i].textContent = c.device + tag;
+      const tag = c.mode === "recording" ? " ● REC" : c.mode === "preview" ? " ◉ LIVE" : c.busy ? " — 사용 중" : "";
+      const o = sel.options[i];
+      if (o.textContent !== c.device + tag) o.textContent = c.device + tag;
+      o.disabled = !!c.busy && c.mode === "idle";
+      o.title = c.busy ? `다른 프로세스가 사용 중: ${c.busy}` : "";
     });
     this.render();
   },
@@ -55,7 +58,10 @@ const Record = {
   render() {
     const c = this.cur();
     const rec = c.mode === "recording";
-    $("#rec-start").disabled = rec || !this.device;
+    const busy = c.mode === "idle" && c.busy;   // the selected device was taken by another process
+    $("#rec-start").disabled = rec || !this.device || !!busy;
+    $("#rec-busy").hidden = !busy;
+    $("#rec-busy").textContent = busy ? `다른 프로세스가 사용 중인 장치입니다 — ${c.busy}` : "";
     $("#rec-start").classList.toggle("on", rec);
     $("#rec-stop").disabled = !rec;
     const st = $("#rec-state");
@@ -71,6 +77,7 @@ const Record = {
     $("#rec-error").hidden = !c.error;
     $("#rec-error").textContent = c.error || "";
     $("#live-input").checked = !!c.preview;
+    $("#live-input").disabled = !!busy && !c.preview;
     $("#live-nosig").hidden = !(c.no_signal && c.mode !== "idle");
     $("#live-body").hidden = this.collapsed;
     $("#live-collapse").textContent = (this.collapsed ? "▸" : "▾") + " Live 모니터";

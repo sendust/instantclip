@@ -11,12 +11,13 @@ Starting a recording replaces the preview process (the WebRTC reader reconnects 
 import asyncio
 import json
 import logging
+import os
 import re
 import time
 from pathlib import Path
 
 from .config import Config
-from .ffutil import FFmpegProcess, close_playlist, list_decklink
+from .ffutil import FFmpegProcess, close_playlist, decklink_holders, describe_pid, list_decklink, ppid_of
 from .media import Media, clean_name, hls_args, video_args
 
 log = logging.getLogger("recorder")
@@ -55,7 +56,7 @@ class Channel:
         return {
             "device": self.device, "mode": self.mode, "preview": self.want_preview,
             "live_path": self.live_path, "clip": self.rel, "elapsed": self.elapsed(),
-            "remaining": self.remaining(),
+            "remaining": self.remaining(), "busy": self.mgr.busy.get(self.device, ""),
             "no_signal": self.no_signal, "error": self.error,
             "speed": p.progress.get("speed") if p else None,
             "drop": p.progress.get("drop_frames") if p else None,
@@ -159,8 +160,14 @@ class Channel:
         self.proc = None
         self.mode = "idle"
 
+    def _check_free(self):
+        if self.mgr.busy.get(self.device):
+            raise RuntimeError(f"다른 프로세스가 사용 중인 장치입니다: {self.mgr.busy[self.device]}")
+
     async def set_preview(self, on: bool):
         async with self._lock:
+            if on and self.mode == "idle":
+                self._check_free()
             self.want_preview = on
             if on and self.mode == "idle":
                 await self._launch(self._preview_args(), "preview")
@@ -171,6 +178,8 @@ class Channel:
         async with self._lock:
             if self.mode == "recording":
                 raise RuntimeError("이미 녹화 중입니다")
+            if self.mode == "idle":
+                self._check_free()
             cap = self.mgr.cfg.section("capture")
             prefix = clean_name(prefix or cap["default_prefix"])
             name = time.strftime(cap["name_template"].replace("{prefix}", prefix))
@@ -218,6 +227,8 @@ class Recorder:
         self.media = media
         self.channels: dict[str, Channel] = {}
         self.devices: list[str] = []
+        self.busy: dict[str, str] = {}   # device -> "ffmpeg (pid N, owner)" held by another process
+        self._held_prev: set[tuple[str, int]] = set()
         media.recording_rels = self.recording_rels
 
     async def refresh_devices(self) -> list[str]:
@@ -234,10 +245,53 @@ class Recorder:
             self.channels[device] = Channel(self, device)
         return self.channels[device]
 
+    def scan_busy(self):
+        """Which DeckLink devices another process holds, via /proc/*/fd -> /dev/blackmagic/ioN.
+
+        capture.device_nodes maps device name -> node (the driver's order is not the list order:
+        on a Duo 2, (2) and (3) are io2 and io1). Our own ffmpeg shows which node a channel really
+        uses, so the map corrects itself whenever a channel runs."""
+        holders = decklink_holders()
+        nodes = dict(self.cfg.section("capture").get("device_nodes", {}))
+        learned = False
+        for c in self.channels.values():
+            pid = c.proc.proc.pid if c.proc and c.proc.proc and c.proc.running else None
+            mine = [n for n, pids in holders.items() if pid in pids]
+            if len(mine) == 1 and nodes.get(c.device) != mine[0]:
+                log.info("[%s] device node learned: %s (was %s)", c.device, mine[0], nodes.get(c.device))
+                nodes = {d: n for d, n in nodes.items() if n != mine[0]}
+                nodes[c.device] = mine[0]
+                learned = True
+        if learned:
+            self.cfg.update_section("capture", {"device_nodes": nodes})
+        me = os.getpid()
+        # a holder counts only if seen on two scans in a row: `ffmpeg -sources decklink` (ours or
+        # another app's) opens every node for a moment
+        held = {(n, p) for n, pids in holders.items() for p in pids if p != me and ppid_of(p) != me}
+        busy = {}
+        for dev, node in nodes.items():
+            pids = sorted(p for n, p in held & self._held_prev if n == node)
+            if pids:
+                busy[dev] = ", ".join(describe_pid(p) for p in pids)
+        self._held_prev = held
+        for dev in set(busy) - set(self.busy):
+            log.info("[%s] in use by another process: %s", dev, busy[dev])
+        for dev in set(self.busy) - set(busy):
+            log.info("[%s] released by the other process", dev)
+        self.busy = busy
+
     async def watchdog(self):
-        """Auto-stop recordings whose deadline passed (operator walked away)."""
+        """Auto-stop recordings whose deadline passed (operator walked away); every 2 s also
+        refresh which devices other processes hold."""
+        tick = 0
         while True:
             await asyncio.sleep(1)
+            tick += 1
+            if tick % 2 == 0:
+                try:
+                    await asyncio.to_thread(self.scan_busy)
+                except Exception:
+                    log.exception("device busy scan")
             for c in list(self.channels.values()):
                 if c.mode == "recording" and time.time() >= c.deadline:
                     log.warning("[%s] auto-stop: recording time limit reached (%s)", c.device, c.rel)
@@ -254,6 +308,7 @@ class Recorder:
         for d in self.devices or list(self.channels):
             c = self.channels.get(d)
             out.append(c.status() if c else {"device": d, "mode": "idle", "preview": False,
+                                             "busy": self.busy.get(d, ""),
                                              "live_path": self.cfg.section("mediamtx")["path_prefix"] + slug(d)})
         return out
 

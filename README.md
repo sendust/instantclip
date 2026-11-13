@@ -51,7 +51,7 @@ UI 의 subclip 코덱 설정은 바꾸는 즉시 이 파일에 저장된다. 나
 |---|---|
 | `http.port` | 웹 UI 포트 (기본 8090) |
 | `paths.record / proxy / subclip / thumbnail` | 녹화, proxy, subclip, 썸네일 경로 |
-| `capture` | DeckLink `format_code`(Hi59 = 1080i59.94), 오디오 채널, 디인터레이스 필터, 녹화 파일 이름 규칙 (`{prefix}` + strftime), 자동 종료 `auto_stop_sec`(7200 = 2시간), 연장 단위 `extend_sec`(600) |
+| `capture` | DeckLink `format_code`(Hi59 = 1080i59.94), 오디오 채널, 디인터레이스 필터, 녹화 파일 이름 규칙 (`{prefix}` + strftime), 자동 종료 `auto_stop_sec`(7200 = 2시간), 연장 단위 `extend_sec`(600), `device_nodes` 장치 이름 → `/dev/blackmagic/ioN` (다른 프로세스 사용 감지용, 이 시스템이 캡처할 때마다 자동으로 고쳐짐) |
 | `record_hires` | 고해상도 녹화 코덱. 기본 `mpeg2video` 35M CBR (minrate=maxrate=bitrate), GOP 30, B 2, `threads`, `extra_args`(intra_vlc, non_linear_quant, qmin/qmax). `h264_nvenc`/`libx264` 로 바꿀 수도 있음 |
 | `record_proxy` | 저해상도 녹화 코덱 (854x480, 29.97, 4M, HLS segment 길이) |
 | `live` | WebRTC 모니터용 인코딩 |
@@ -77,6 +77,9 @@ MPEG-2 는 NVENC 가 지원하지 않아 CPU 로 인코딩한다 (실측: 1080p5
    녹화제어와 시스템 상태 사이의 가로선은 끌어서 높이를 바꿀 수 있다 (더블클릭: 기본값, 브라우저에 기억).
    소리는 MUTE 로 시작하고 버튼을 눌러야 나온다. ▾ 를 누르면 접히고 WebRTC 연결도 끊는다.
    `입력 모니터` 를 켜면 녹화 전에도 입력을 볼 수 있다 (켜 둔 동안 DeckLink 장치를 점유).
+   다른 프로세스(mediarouter 등)가 쓰고 있는 장치는 목록에서 회색 `— 사용 중` 으로 표시되어 고를 수 없고,
+   REC/입력 모니터도 거부된다 (2초마다 `/proc/*/fd` 로 확인; 같은 사용자 계정의 프로세스만 보임).
+   Duo 2 는 장치 노드 순서가 목록 순서와 다르다 (Duo (2)=io2, Duo (3)=io1).
 2. **편집제어** — 미디어 브라우저에서 클립을 끌어다 놓거나 더블클릭. 첫 프레임에서 정지 상태로 열린다.
    타임라인 hover = 썸네일, IN/OUT 구간 표시, mark 시간은 클립마다 브라우저에 기억된다.
    SUBCLIP 번호 칸에 다음 번호가 보이고 RESET 으로 [001] 부터 다시 시작한다.

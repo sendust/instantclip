@@ -36,6 +36,9 @@ kbd { font: 10px var(--mono); background: #0f1318; border: 1px solid var(--line)
 .grow { flex: 1; }
 .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .error { color: #ff7b72; }
+/* DeckLink held by another process (e.g. mediarouter): greyed in the list, note under it */
+#rec-device option:disabled { color: #6b7684; }
+.busy-note { color: var(--muted); border-left: 3px solid #6b7684; padding: 2px 6px; margin-bottom: 6px; }
 .hint { color: var(--warn); font-size: 12px; }
 [hidden] { display: none !important; }
 

@@ -32,7 +32,14 @@
     "name_template": "{prefix}_%Y%m%d_%H%M%S",
     "default_prefix": "REC",
     "auto_stop_sec": 7200,
-    "extend_sec": 600
+    "extend_sec": 600,
+    "device_nodes": {
+      "DeckLink Duo (1)": "/dev/blackmagic/io0",
+      "DeckLink Duo (2)": "/dev/blackmagic/io2",
+      "DeckLink Duo (3)": "/dev/blackmagic/io1",
+      "DeckLink Duo (4)": "/dev/blackmagic/io3",
+      "DeckLink Mini Recorder": "/dev/blackmagic/io4"
+    }
   },
   "record_hires": {
     "container": "ts",

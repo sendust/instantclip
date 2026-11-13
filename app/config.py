@@ -23,7 +23,9 @@ DEFAULTS = {
                  "path_prefix": "instantclip_"},
     "capture": {"format_code": "Hi59", "audio_channels": 2, "deinterlace": "bwdif_cuda=mode=1",
                 "name_template": "{prefix}_%Y%m%d_%H%M%S", "default_prefix": "REC",
-                "auto_stop_sec": 7200, "extend_sec": 600},
+                "auto_stop_sec": 7200, "extend_sec": 600,
+                # device name -> /dev/blackmagic/ioN, for "in use by another process" (learned while capturing)
+                "device_nodes": {}},
     "record_hires": {"container": "ts", "vcodec": "mpeg2video", "bitrate": "35M", "minrate": "35M",
                      "maxrate": "35M", "bufsize": "9781k", "gop": 30, "bframes": 2, "threads": 16,
                      "acodec": "aac", "abitrate": "256k",
