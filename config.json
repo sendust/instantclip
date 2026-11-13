@@ -23,7 +23,8 @@
     "rtsp_url": "rtsp://127.0.0.1:8554",
     "webrtc_url": "",
     "webrtc_port": 8889,
-    "path_prefix": "instantclip_"
+    "path_prefix": "instantclip_",
+    "api_url": "http://127.0.0.1:9997"
   },
   "capture": {
     "format_code": "Hi59",

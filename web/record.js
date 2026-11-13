@@ -4,7 +4,7 @@ const Record = {
   device: localStorage.getItem("ic.device") || "",
   channels: [],
   reader: null,
-  readerPath: null,
+  readerKey: null,      // "path|readyTime" of the live stream being shown
   audio: null,          // {listenGain, nodes, sink}
   muted: true,          // always start muted
   collapsed: localStorage.getItem("ic.liveCollapsed") === "1",
@@ -81,20 +81,26 @@ const Record = {
     $("#live-nosig").hidden = !(c.no_signal && c.mode !== "idle");
     $("#live-body").hidden = this.collapsed;
     $("#live-collapse").textContent = (this.collapsed ? "▸" : "▾") + " Live 모니터";
-    const want = !this.collapsed && c.mode !== "idle" ? c.live_path : null;
-    if (want !== this.readerPath) this.connect(want);
+    // connection key = path + publisher readyTime: preview -> REC swaps the ffmpeg on the same path,
+    // and only a fresh WHEP session after the new publisher is up gets moving video again
+    const show = !this.collapsed && c.mode !== "idle";
+    const ready = c.live_ready === undefined ? "-" : c.live_ready;   // older server: no readiness info
+    const want = show && ready ? `${c.live_path}|${ready}` : null;
+    if (want !== this.readerKey) this.connect(want);
     if (!want) {
       $("#live-msg").hidden = false;
-      $("#live-msg").textContent = this.collapsed ? "" : "입력 모니터 꺼짐 — 녹화를 시작하거나 '입력 모니터'를 켜세요";
+      $("#live-msg").textContent = this.collapsed ? "" : show ? "라이브 스트림 대기 중…"
+        : "입력 모니터 꺼짐 — 녹화를 시작하거나 '입력 모니터'를 켜세요";
     }
   },
 
-  connect(path) {
+  connect(key) {
     if (this.reader) { this.reader.close(); this.reader = null; }
     this.disconnectAudio();
     $("#live-video").srcObject = null;
-    this.readerPath = path;
-    if (!path) return;
+    this.readerKey = key;
+    if (!key) return;
+    const path = key.split("|")[0];
     $("#live-msg").hidden = false;
     $("#live-msg").textContent = `connecting ${path}…`;
     this.reader = new MediaMTXWebRTCReader({

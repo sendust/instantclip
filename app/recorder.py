@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import time
+import urllib.request
 from pathlib import Path
 
 from .config import Config
@@ -57,6 +58,7 @@ class Channel:
             "device": self.device, "mode": self.mode, "preview": self.want_preview,
             "live_path": self.live_path, "clip": self.rel, "elapsed": self.elapsed(),
             "remaining": self.remaining(), "busy": self.mgr.busy.get(self.device, ""),
+            "live_ready": self.mgr.live_ready.get(self.live_path, ""),
             "no_signal": self.no_signal, "error": self.error,
             "speed": p.progress.get("speed") if p else None,
             "drop": p.progress.get("drop_frames") if p else None,
@@ -229,6 +231,9 @@ class Recorder:
         self.devices: list[str] = []
         self.busy: dict[str, str] = {}   # device -> "ffmpeg (pid N, owner)" held by another process
         self._held_prev: set[tuple[str, int]] = set()
+        # mediamtx path -> readyTime of its current publisher. REC replaces the preview ffmpeg on the
+        # same path; a browser keyed on this reconnects once the new publisher is up (else it freezes)
+        self.live_ready: dict[str, str] = {}
         media.recording_rels = self.recording_rels
 
     async def refresh_devices(self) -> list[str]:
@@ -280,13 +285,29 @@ class Recorder:
             log.info("[%s] released by the other process", dev)
         self.busy = busy
 
+    def poll_live(self):
+        mine = {c.live_path for c in self.channels.values() if c.mode != "idle"}
+        if not mine:
+            self.live_ready = {}
+            return
+        url = self.cfg.section("mediamtx")["api_url"].rstrip("/") + "/v3/paths/list?itemsPerPage=1000"
+        with urllib.request.urlopen(url, timeout=2) as r:
+            items = json.load(r).get("items", [])
+        self.live_ready = {i["name"]: i.get("readyTime") or "" for i in items if i["name"] in mine and i.get("ready")}
+
     async def watchdog(self):
-        """Auto-stop recordings whose deadline passed (operator walked away); every 2 s also
-        refresh which devices other processes hold."""
+        """Auto-stop recordings whose deadline passed (operator walked away); every second poll
+        mediamtx for live publishers, every 2 s refresh which devices other processes hold."""
         tick = 0
         while True:
             await asyncio.sleep(1)
             tick += 1
+            try:
+                await asyncio.to_thread(self.poll_live)
+            except Exception as e:
+                if self.live_ready or tick % 60 == 1:
+                    log.warning("mediamtx API: %s", e)
+                self.live_ready = {}
             if tick % 2 == 0:
                 try:
                     await asyncio.to_thread(self.scan_busy)

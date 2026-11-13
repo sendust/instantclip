@@ -20,7 +20,7 @@ DEFAULTS = {
     "log": {"dir": "logs", "level": "INFO", "max_bytes": 10 * 1024 * 1024, "backup_count": 10},
     "ffmpeg": {"ffmpeg": "ffmpeg", "ffprobe": "ffprobe"},
     "mediamtx": {"rtsp_url": "rtsp://127.0.0.1:8554", "webrtc_url": "", "webrtc_port": 8889,
-                 "path_prefix": "instantclip_"},
+                 "path_prefix": "instantclip_", "api_url": "http://127.0.0.1:9997"},
     "capture": {"format_code": "Hi59", "audio_channels": 2, "deinterlace": "bwdif_cuda=mode=1",
                 "name_template": "{prefix}_%Y%m%d_%H%M%S", "default_prefix": "REC",
                 "auto_stop_sec": 7200, "extend_sec": 600,
