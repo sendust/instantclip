@@ -237,9 +237,10 @@ button.toggle.on { background: #1d4d33; border-color: var(--in); }
 
 /* ---------- system ---------- */
 .sys-grid { display: grid; grid-template-columns: 1fr; gap: 6px; font-size: 12px; }
-.sys-item { display: grid; grid-template-columns: 82px 1fr 120px; gap: 6px; align-items: center; }
-.sys-item .k { color: var(--muted); font-size: 11px; }
-.sys-item .v { font: 11px var(--mono); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sys-item { display: grid; grid-template-columns: auto 1fr; column-gap: 8px; row-gap: 2px; align-items: baseline; }
+.sys-item .k { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.sys-item .v { font: 11px var(--mono); text-align: right; overflow-wrap: anywhere; }
+.sys-item .bar { grid-column: 1 / -1; }
 .bar { height: 8px; background: #0b0e12; border-radius: 2px; overflow: hidden; }
 .bar > i { display: block; height: 100%; background: var(--accent); transition: width .4s; }
 .bar.warn > i { background: var(--warn); }
@@ -247,6 +248,7 @@ button.toggle.on { background: #1d4d33; border-color: var(--in); }
 .cores { display: grid; grid-template-columns: repeat(20, 1fr); gap: 2px; height: 22px; }
 .cores i { display: block; background: #0b0e12; position: relative; }
 .cores i b { position: absolute; left: 0; right: 0; bottom: 0; background: var(--accent); }
+.sys-cpu { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; font-size: 11px; }
 .sys-sep { border-top: 1px solid var(--line); margin: 2px 0; }
 
 .jobs { display: flex; flex-direction: column; gap: 4px; }

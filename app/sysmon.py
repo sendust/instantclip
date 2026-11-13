@@ -26,6 +26,30 @@ class SysMon:
         self._net_prev = None
         self._rapl_prev: dict[str, tuple[float, int]] = {}
         psutil.cpu_percent(percpu=True)
+        self.cpu_info = self._cpu_info()
+        self.gpu_driver = ""
+        if _NVML:
+            try:
+                self.gpu_driver = pynvml.nvmlSystemGetDriverVersion()
+            except pynvml.NVMLError:
+                pass
+
+    @staticmethod
+    def _cpu_info() -> dict:
+        """Model, sockets, physical cores, threads — static, read once."""
+        model, sockets = "", set()
+        try:
+            for line in Path("/proc/cpuinfo").read_text().splitlines():
+                k, _, v = line.partition(":")
+                k = k.strip()
+                if k == "model name" and not model:
+                    model = " ".join(v.split())
+                elif k == "physical id":
+                    sockets.add(v.strip())
+        except OSError:
+            pass
+        return {"model": model, "sockets": len(sockets) or 1,
+                "cores": psutil.cpu_count(logical=False), "threads": psutil.cpu_count()}
 
     def _gpus(self):
         out = []
@@ -33,7 +57,7 @@ class SysMon:
             return out
         for i in range(pynvml.nvmlDeviceGetCount()):
             h = pynvml.nvmlDeviceGetHandleByIndex(i)
-            g = {"index": i, "name": pynvml.nvmlDeviceGetName(h)}
+            g = {"index": i, "name": pynvml.nvmlDeviceGetName(h), "driver": self.gpu_driver}
             for key, fn in (
                 ("util", lambda: pynvml.nvmlDeviceGetUtilizationRates(h).gpu),
                 ("mem_util", lambda: pynvml.nvmlDeviceGetUtilizationRates(h).memory),
@@ -126,7 +150,7 @@ class SysMon:
         self.data = {
             "time": time.time(),
             "cpu": {"total": sum(per) / len(per) if per else 0, "per": per,
-                    "load": list(psutil.getloadavg()), "count": psutil.cpu_count()},
+                    "load": list(psutil.getloadavg()), "count": psutil.cpu_count(), **self.cpu_info},
             "mem": {"total": vm.total, "used": vm.total - vm.available, "percent": vm.percent},
             "gpu": self._gpus(),
             "net": self._net(now),

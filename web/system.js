@@ -16,19 +16,26 @@ const System = {
     return `<div class="bar ${cls}"><i style="width:${p.toFixed(1)}%"></i></div>`;
   },
   item(k, pct, v, warn, crit) {
-    return `<div class="sys-item"><span class="k">${k}</span>${pct == null ? "<span></span>" : this.bar(pct, warn, crit)}<span class="v" title="${esc(v)}">${v}</span></div>`;
+    // label and value share the first line (value gets the full width), the bar runs underneath
+    return `<div class="sys-item"><span class="k">${k}</span><span class="v">${v}</span>${pct == null ? "" : this.bar(pct, warn, crit)}</div>`;
   },
 
   render(s) {
     if (!s || !s.cpu) return;
     const h = [];
+    if (s.cpu.model) {
+      const c = s.cpu, model = c.model.replace(/\((R|TM)\)/g, "").replace(/ CPU/, "").replace(/\s+/g, " ");
+      h.push(`<div class="sys-cpu"><span class="mono">${esc(model)}</span><span class="muted">${c.sockets > 1 ? `${c.sockets} socket · ` : ""}${c.cores ?? "?"} core · ${c.threads} thread</span></div>`);
+    }
     h.push(this.item("CPU", s.cpu.total, `${s.cpu.total.toFixed(0)}% · load ${s.cpu.load[0].toFixed(1)}`));
     h.push(`<div class="cores" style="grid-template-columns:repeat(${Math.min(20, s.cpu.per.length)},1fr)">${
       s.cpu.per.map((p, i) => `<i title="core ${i}: ${p.toFixed(0)}%"><b style="height:${p}%"></b></i>`).join("")}</div>`);
     h.push(this.item("RAM", s.mem.percent, `${bytes(s.mem.used)} / ${bytes(s.mem.total)}`));
     for (const g of s.gpu) {
       h.push('<div class="sys-sep"></div>');
-      h.push(this.item(`GPU${g.index}`, g.util, `${g.util ?? "-"}% ${g.name}`));
+      h.push(`<div class="sys-cpu"><span class="mono">${esc(g.name)}</span><span class="muted">${
+        g.mem_total ? `${bytes(g.mem_total)} VRAM` : ""}${g.driver ? ` · driver ${esc(g.driver)}` : ""}</span></div>`);
+      h.push(this.item(`GPU${g.index}`, g.util, `${g.util ?? "-"}%`));
       h.push(this.item("NVENC", g.enc, `${g.enc ?? "-"}% · ${g.enc_sessions ?? "?"} sess`));
       h.push(this.item("NVDEC", g.dec, `${g.dec ?? "-"}%`));
       if (g.mem_total) h.push(this.item("VRAM", (g.mem_used / g.mem_total) * 100, `${bytes(g.mem_used)} / ${bytes(g.mem_total)}`));
