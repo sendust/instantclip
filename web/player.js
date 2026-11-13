@@ -66,6 +66,9 @@ const Player = {
   /* ---------- loading ---------- */
   async load(root, path, polling = false) {
     clearTimeout(this.pollTimer);
+    // opened from the browser (double-click / Enter / button): the shortcuts need the player focused,
+    // else Space etc. go to the file list. Not on proxy polls, which would steal focus every 2 s.
+    if (!polling) this.box.focus({ preventScroll: true });
     if (root === "subclip") return this.loadSubclip(path);
     let info;
     try { info = await api("GET", `/api/clip?path=${encodeURIComponent(path)}`); }
