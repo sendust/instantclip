@@ -28,7 +28,29 @@ const Codec = {
     this.toForm();
     this.form.addEventListener("change", (e) => this.onChange(e));
     this.form.audio_gain.addEventListener("input", () => this.showGain());
+    this.initFold();
     $("#gain-reset").onclick = () => { this.form.audio_gain.value = 1; this.showGain(); this.save({ audio_gain: 1 }); };
+  },
+
+  /* fold the panel to the right (remembered per browser); a click anywhere on the strip unfolds it */
+  initFold() {
+    const layout = $(".layout"), btn = $("#codec-fold"), wide = matchMedia("(min-width: 1501px)");
+    let folded = false;
+    try { folded = localStorage.getItem("ic.codecFolded") === "1"; } catch (_) {}
+    const apply = () => {
+      layout.classList.toggle("codec-folded", folded);
+      btn.textContent = wide.matches ? (folded ? "«" : "»") : (folded ? "▸" : "▾");
+      btn.title = folded ? "펼치기" : "접기";
+    };
+    const set = (v) => {
+      folded = v;
+      try { localStorage.setItem("ic.codecFolded", v ? "1" : "0"); } catch (_) {}
+      apply();
+    };
+    btn.onclick = (e) => { e.stopPropagation(); set(!folded); };
+    $("#p-codec").addEventListener("click", () => { if (folded && wide.matches) set(false); });
+    wide.addEventListener("change", apply);
+    apply();
   },
 
   fillLists(codec) {

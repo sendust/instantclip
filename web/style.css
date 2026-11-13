@@ -72,6 +72,19 @@ kbd { font: 10px var(--mono); background: #0f1318; border: 1px solid var(--line)
   #p-system { flex: none; }
 }
 
+/* subclip 코덱 panel folds: to a thin strip on the right (3-column layout), to its header otherwise */
+.fold-btn { margin-left: auto; background: none; border: 1px solid var(--line); color: var(--muted); padding: 0 7px; line-height: 18px; border-radius: 3px; }
+.fold-btn:hover { color: var(--text); border-color: var(--accent); }
+.layout.codec-folded #p-codec > :not(h2) { display: none; }
+.layout.codec-folded #p-codec h2 { margin: 0; }
+@media (min-width: 1501px) {
+  .layout.codec-folded { grid-template-columns: 430px minmax(560px, 1fr) 34px; }
+  .layout.codec-folded #p-codec { padding: 8px 4px; cursor: pointer; }
+  .layout.codec-folded #p-codec h2 { writing-mode: vertical-rl; white-space: nowrap; }
+  .layout.codec-folded #p-codec .fold-btn { order: -1; margin: 0 0 6px; padding: 0 5px; writing-mode: horizontal-tb; }
+  .layout.codec-folded #codec-saved { display: none; }
+}
+
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px; min-width: 0; }
 .panel h2 { margin: 0 0 8px; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
 .panel h3 { margin: 12px 0 6px; font-size: 12px; color: var(--muted); display: flex; align-items: center; }
