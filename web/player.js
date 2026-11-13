@@ -55,6 +55,7 @@ const Player = {
     $("#ed-vol").oninput = () => { localStorage.setItem("ic.vol", $("#ed-vol").value); this.applyVol(); };
     $("#ed-mute").onclick = () => { this.muted = !this.muted; this.applyVol(); };
     $("#cnt-reset").onclick = () => { this.resetCounter(); this.box.focus(); };
+    $("#ed-eject").onclick = () => this.eject();
     this.initTimeline();
     this.render();
   },
@@ -85,6 +86,21 @@ const Player = {
       return;
     }
     this.attach(info.proxy);
+  },
+
+  /* unload the clip: back to the empty "drop a clip here" state (marks stay saved for that clip) */
+  eject() {
+    if (!this.clip) return;
+    clearTimeout(this.pollTimer);
+    this.saveMarks();
+    this.detach();
+    this.clip = null;
+    this.markIn = this.markOut = null;
+    this.queued = false;
+    $("#ed-title").textContent = "";
+    this.msg(null);
+    this.loadCounter();
+    this.render();
   },
 
   loadSubclip(path) {
@@ -384,5 +400,6 @@ const Player = {
     $("#btn-queue").title = this.queued ? "이미 등록한 구간 — mark in/out 을 다시 지정하세요" : "Enter";
     $("#ed-rec").hidden = !(this.clip && !this.clip.subclip && this.live);   // open EVENT playlist = still recording
     $("#ed-drop").hidden = !!this.clip;
+    $("#ed-eject").disabled = !this.clip;
   },
 };

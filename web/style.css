@@ -86,6 +86,7 @@ kbd { font: 10px var(--mono); background: #0f1318; border: 1px solid var(--line)
 }
 
 /* subclip 코덱 panel folds: to a thin strip on the right (3-column layout), to its header otherwise */
+.eject-btn { margin-left: auto; font-size: 11px; padding: 1px 8px; }
 .fold-btn { margin-left: auto; background: none; border: 1px solid var(--line); color: var(--muted); padding: 0 7px; line-height: 18px; border-radius: 3px; }
 .fold-btn:hover { color: var(--text); border-color: var(--accent); }
 .layout.codec-folded #p-codec > :not(h2) { display: none; }
