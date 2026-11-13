@@ -3,6 +3,9 @@
  * Shortcuts listen on the #player element only, so they work only while it has focus.
  * Keys are matched by e.code so they also work with the Korean IME active.
  */
+// actions that edit (marks, submit); on a loaded subclip they only show a message
+const EDIT_ACTS = ["mark-in", "mark-out", "clear-marks", "queue", "in-jump", "out-jump"];
+
 const Player = {
   clip: null,          // /api/clip info, or {subclip:true,...} for subclip preview
   hls: null,
@@ -212,8 +215,13 @@ const Player = {
   syncPlayBtn() { $("#btn-play").textContent = this.v.paused ? "▶" : "❚❚"; },
 
   editable() { return this.clip && !this.clip.subclip && this.hasMedia(); },
+  notEditable() {
+    toast("subclip 은 미리보기 전용입니다 — 편집(mark in/out, subclip 등록)은 녹화 원본에서만 할 수 있습니다", true);
+  },
 
   act(a) {
+    // a subclip is preview-only: say so instead of silently ignoring the edit keys/buttons
+    if (this.clip?.subclip && EDIT_ACTS.includes(a)) return this.notEditable();
     switch (a) {
       case "play": return this.toggle();
       case "lr-": return this.seekBy(-this.seekLR);
@@ -304,7 +312,8 @@ const Player = {
     } catch (_) { el.textContent = "[---]"; }
   },
   async resetCounter() {
-    if (!this.clip || this.clip.subclip) return toast("녹화 클립을 먼저 불러오세요", true);
+    if (this.clip?.subclip) return this.notEditable();
+    if (!this.clip) return toast("녹화 클립을 먼저 불러오세요", true);
     const stem = this.clip.path.split("/").pop().replace(/\.[^.]+$/, "");
     if (!confirm(`${stem} 의 subclip 번호를 [001] 부터 다시 시작할까요?`)) return;
     try { await api("POST", "/api/counter/reset", { path: this.clip.path }); toast("subclip 번호 리셋"); }
