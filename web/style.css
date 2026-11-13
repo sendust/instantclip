@@ -52,27 +52,37 @@ kbd { font: 10px var(--mono); background: #0f1318; border: 1px solid var(--line)
 .layout {
   display: grid; gap: 10px; padding: 10px;
   grid-template-columns: 430px minmax(560px, 1fr) 330px;
-  grid-template-areas: "left edit codec" "left browser codec";
+  grid-template-areas: "left edit right" "left browser right";
   grid-template-rows: auto 1fr;
 }
-#left-col { grid-area: left; display: flex; flex-direction: column; min-width: 0;
+/* left: 녹화제어 | divider | 녹화 클립 list;  right: subclip 코덱 over 시스템 상태 — both stay in view */
+#left-col, #right-col { display: flex; flex-direction: column; min-width: 0;
   position: sticky; top: 10px; height: calc(100vh - 62px); align-self: start; }
+#left-col { grid-area: left; }
+#right-col { grid-area: right; gap: 10px; }
 #p-record { flex: 0 0 auto; overflow-y: auto; min-height: 120px; }
-#p-system { flex: 1 1 0; overflow-y: auto; min-height: 80px; }
+#p-captures { flex: 1 1 0; min-height: 120px; display: flex; flex-direction: column; }
+#p-captures .fb { flex: 1 1 0; min-height: 0; }
+#p-captures .fb-list { height: auto; flex: 1 1 0; }
+#p-codec { flex: 0 1 auto; overflow-y: auto; }
+#p-system { flex: 1 1 0; overflow-y: auto; min-height: 140px; }
 #p-edit { grid-area: edit; }
-#p-codec { grid-area: codec; }
 #p-browser { grid-area: browser; }
+#p-browser .fb-list { height: 420px; }
 /* draggable divider between 녹화제어 and 시스템 상태 */
 .hsplit { flex: 0 0 10px; cursor: row-resize; position: relative; touch-action: none; }
 .hsplit::after { content: ""; position: absolute; left: 30%; right: 30%; top: 4px; height: 2px; border-radius: 1px; background: var(--line); }
 .hsplit:hover::after, .hsplit.drag::after { background: var(--accent); left: 0; right: 0; }
 @media (max-width: 1500px) {
-  .layout { grid-template-columns: 430px 1fr; grid-template-areas: "left edit" "left browser" "codec codec"; grid-template-rows: auto 1fr auto; }
+  .layout { grid-template-columns: 430px 1fr; grid-template-areas: "left edit" "left browser" "right right"; grid-template-rows: auto 1fr auto; }
+  #right-col { position: static; height: auto; display: grid; grid-template-columns: 1fr 1fr; align-items: start; }
 }
 @media (max-width: 1050px) {
-  .layout { grid-template-columns: 1fr; grid-template-areas: "left" "edit" "browser" "codec"; }
+  .layout { grid-template-columns: 1fr; grid-template-areas: "left" "edit" "browser" "right"; }
   #left-col { position: static; height: auto; }
-  #p-system { flex: none; }
+  #right-col { grid-template-columns: 1fr; }
+  #p-captures, #p-captures .fb { flex: none; }
+  #p-captures .fb-list { height: 340px; flex: none; }
 }
 
 /* subclip 코덱 panel folds: to a thin strip on the right (3-column layout), to its header otherwise */
@@ -86,6 +96,8 @@ kbd { font: 10px var(--mono); background: #0f1318; border: 1px solid var(--line)
   .layout.codec-folded #p-codec h2 { writing-mode: vertical-rl; white-space: nowrap; }
   .layout.codec-folded #p-codec .fold-btn { order: -1; margin: 0 0 6px; padding: 0 5px; writing-mode: horizontal-tb; }
   .layout.codec-folded #codec-saved { display: none; }
+  .layout.codec-folded #p-system { display: none; }   /* the whole right column folds to the strip */
+  .layout.codec-folded #p-codec { flex: 1 1 auto; }
 }
 
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px; min-width: 0; }
@@ -197,8 +209,7 @@ button.toggle.on { background: #1d4d33; border-color: var(--in); }
 #name-preview { word-break: break-all; color: var(--text); }
 
 /* ---------- file browser ---------- */
-.browsers { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-@media (max-width: 1050px) { .browsers { grid-template-columns: 1fr; } }
+.browsers { display: grid; grid-template-columns: 1fr; gap: 10px; }
 .fb { border: 1px solid var(--line); border-radius: 4px; display: flex; flex-direction: column; min-width: 0; }
 .fb.dragover { border-color: var(--in); }
 .fb-head { display: flex; gap: 8px; align-items: baseline; padding: 6px 8px; background: var(--panel2); border-bottom: 1px solid var(--line); }
@@ -232,7 +243,7 @@ button.toggle.on { background: #1d4d33; border-color: var(--in); }
 .cores i b { position: absolute; left: 0; right: 0; bottom: 0; background: var(--accent); }
 .sys-sep { border-top: 1px solid var(--line); margin: 2px 0; }
 
-.jobs { display: flex; flex-direction: column; gap: 4px; max-height: 300px; overflow-y: auto; }
+.jobs { display: flex; flex-direction: column; gap: 4px; }
 .job { background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; font-size: 11px; }
 .job .top { display: flex; gap: 6px; align-items: center; }
 .job .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }

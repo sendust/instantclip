@@ -60,7 +60,8 @@ const System = {
         <span class="mono">${p.progress != null ? p.progress.toFixed(0) + "%" : hms(p.time)} ${esc(p.speed || "")}</span></div>
         ${this.bar(p.progress ?? 0, 101, 101)}</div>`);
     }
-    for (const j of [...jobs].reverse()) {
+    // newest submit first (the server keeps active jobs ahead of finished ones; ids grow per submit)
+    for (const j of [...jobs].sort((a, b) => b.id - a.id)) {
       const active = ["queued", "waiting", "running"].includes(j.state);
       h.push(`<div class="job"><div class="top"><span class="st ${j.state}">${j.state.toUpperCase()}</span>
         <span class="nm" title="${esc(j.output)}\n← ${esc(j.source)}">${esc(j.name)}</span>

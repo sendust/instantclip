@@ -40,7 +40,7 @@ const Codec = {
     const apply = () => {
       layout.classList.toggle("codec-folded", folded);
       btn.textContent = wide.matches ? (folded ? "«" : "»") : (folded ? "▸" : "▾");
-      btn.title = folded ? "펼치기" : "접기";
+      btn.title = folded ? "펼치기" : wide.matches ? "접기 (시스템 상태 포함)" : "접기";
     };
     const set = (v) => {
       folded = v;

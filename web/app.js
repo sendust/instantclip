@@ -46,7 +46,7 @@ const Splitter = {
       bar.classList.add("drag");
       const y0 = e.clientY, h0 = top.getBoundingClientRect().height;
       const col = $("#left-col").getBoundingClientRect().height;
-      const move = (ev) => apply(Math.round(Math.max(120, Math.min(col - 90, h0 + ev.clientY - y0))));
+      const move = (ev) => apply(Math.round(Math.max(120, Math.min(col - 160, h0 + ev.clientY - y0))));
       const up = () => {
         bar.classList.remove("drag");
         bar.removeEventListener("pointermove", move);

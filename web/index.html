@@ -64,12 +64,23 @@
   </section>
 
   <div class="hsplit" id="left-split" title="드래그하여 높이 조절 (더블클릭: 기본값)"></div>
-  <!-- ============ 5. 시스템 상태 ============ -->
-  <section class="panel" id="p-system">
-    <h2><span class="num">5</span>시스템 상태</h2>
-    <div id="sys-grid" class="sys-grid"></div>
-    <h3>Subclip 인코더 큐 <button id="jobs-clear" class="small right">완료 항목 지우기</button></h3>
-    <div id="jobs" class="jobs"></div>
+  <!-- ============ 4a. 녹화 클립 (호스트 미디어) ============ -->
+  <section class="panel" id="p-captures">
+    <h2><span class="num">4</span>호스트 미디어 — 녹화 클립</h2>
+    <div class="fb" id="fb-capture" data-root="capture">
+      <div class="fb-head"><span class="crumb"></span><span class="small muted">REC = 녹화 중 · 더블클릭/끌어다 놓기 → 플레이어</span></div>
+      <div class="fb-tools">
+        <button data-op="up" title="상위 폴더">↑</button>
+        <button data-op="refresh" title="새로고침">⟳</button>
+        <button data-op="mkdir">+ 폴더</button>
+        <button data-op="rename">이름변경</button>
+        <button data-op="delete" class="danger">삭제</button>
+        <select class="fb-sort" title="정렬"><option value="name">이름</option><option value="mtime">생성일시</option></select>
+        <button data-op="sortdir" class="fb-dir">↓</button>
+        <button data-op="load" class="right">▶ 플레이어로</button>
+      </div>
+      <div class="fb-list"></div>
+    </div>
   </section>
   </div>
 
@@ -143,6 +154,7 @@
     </details>
   </section>
 
+  <div id="right-col">
   <!-- ============ 3. subclip 코덱제어 ============ -->
   <section class="panel" id="p-codec">
     <h2><span class="num">3</span>Subclip 코덱 <span id="codec-saved" class="saved" hidden>저장됨</span>
@@ -190,26 +202,21 @@
     <div id="codec-warn" class="error small" hidden></div>
   </section>
 
+  <!-- ============ 5. 시스템 상태 ============ -->
+  <section class="panel" id="p-system">
+    <h2><span class="num">5</span>시스템 상태</h2>
+    <div id="sys-grid" class="sys-grid"></div>
+    <h3>Subclip 인코더 큐 <button id="jobs-clear" class="small right">완료 항목 지우기</button></h3>
+    <div id="jobs" class="jobs"></div>
+  </section>
+  </div>
+
   <!-- ============ 4. 호스트 미디어 브라우저 ============ -->
   <section class="panel" id="p-browser">
-    <h2><span class="num">4</span>호스트 미디어 브라우저</h2>
+    <h2><span class="num">4</span>호스트 미디어 브라우저 — Subclip</h2>
     <div class="browsers">
-      <div class="fb" id="fb-capture" data-root="capture">
-        <div class="fb-head"><b>녹화 클립</b><span class="crumb"></span></div>
-        <div class="fb-tools">
-          <button data-op="up" title="상위 폴더">↑</button>
-          <button data-op="refresh" title="새로고침">⟳</button>
-          <button data-op="mkdir">+ 폴더</button>
-          <button data-op="rename">이름변경</button>
-          <button data-op="delete" class="danger">삭제</button>
-          <select class="fb-sort" title="정렬"><option value="name">이름</option><option value="mtime">생성일시</option></select>
-          <button data-op="sortdir" class="fb-dir">↓</button>
-          <button data-op="load" class="right">▶ 플레이어로</button>
-        </div>
-        <div class="fb-list"></div>
-      </div>
       <div class="fb" id="fb-subclip" data-root="subclip">
-        <div class="fb-head"><b>Subclip</b><span class="crumb"></span><span class="small muted">새 subclip 은 현재 폴더에 저장 · 여러 개 선택 후 폴더로 끌면 이동</span></div>
+        <div class="fb-head"><span class="crumb"></span><span class="small muted">새 subclip 은 현재 폴더에 저장 · 여러 개 선택 후 폴더로 끌면 이동</span></div>
         <div class="fb-tools">
           <button data-op="up" title="상위 폴더">↑</button>
           <button data-op="refresh" title="새로고침">⟳</button>
