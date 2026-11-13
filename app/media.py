@@ -1,0 +1,360 @@
+"""Host media storage: layout of hires / proxy / thumbnail, browser operations, proxy generation.
+
+Layout for a hires clip  <record>/<dir>/<name>.<ext>   (rel = "<dir>/<name>.<ext>")
+    proxy                <proxy>/<dir>/<name>/index.m3u8 (+ seg_NNNNNN.ts)
+    thumbnails           <thumbnail>/<dir>/<name>/NNNNNN.jpg (+ meta.json)
+"""
+import asyncio
+import json
+import logging
+import os
+import re
+import shutil
+from pathlib import Path, PurePosixPath
+
+from .config import Config
+from .ffutil import MEDIA_EXTS, FFmpegProcess, close_playlist, hls_info, probe
+
+log = logging.getLogger("media")
+
+ROOTS = ("capture", "subclip")
+_BAD_NAME = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
+
+
+class MediaError(Exception):
+    pass
+
+
+def clean_name(name: str) -> str:
+    name = name.strip()
+    if not name or name in (".", "..") or _BAD_NAME.search(name):
+        raise MediaError(f"사용할 수 없는 이름: {name!r}")
+    return name
+
+
+class Media:
+    def __init__(self, cfg: Config):
+        self.cfg = cfg
+        self.rev = 0                     # bumped on every change -> clients refresh lists
+        self.recording_rels = lambda: {}  # set by recorder: rel -> elapsed seconds
+        self.busy_outputs = lambda: set()   # set by encoder: subclip rels still being written
+        self.proxy_jobs: dict[str, FFmpegProcess] = {}
+        self.proxy_progress: dict[str, dict] = {}
+        self.proxy_errors: dict[str, str] = {}   # rel -> last generation failure
+
+    # ---------- paths ----------
+    def root_dir(self, root: str) -> Path:
+        if root == "capture":
+            return self.cfg.path_of("record")
+        if root == "subclip":
+            return self.cfg.path_of("subclip")
+        raise MediaError(f"unknown root {root}")
+
+    def resolve(self, root: str, rel: str) -> Path:
+        base = self.root_dir(root).resolve()
+        rel = (rel or "").strip("/")
+        p = (base / rel).resolve() if rel else base
+        if p != base and base not in p.parents:
+            raise MediaError("경로가 허용 범위를 벗어났습니다")
+        return p
+
+    def _hidden_dirs(self) -> set[Path]:
+        """proxy/thumbnail live inside the capture dir by default: never list them as folders."""
+        return {self.cfg.path_of("proxy").resolve(), self.cfg.path_of("thumbnail").resolve()}
+
+    def proxy_dir(self, rel: str) -> Path:
+        return self.cfg.path_of("proxy") / str(PurePosixPath(rel).with_suffix(""))
+
+    def thumb_dir(self, rel: str) -> Path:
+        return self.cfg.path_of("thumbnail") / str(PurePosixPath(rel).with_suffix(""))
+
+    def proxy_url(self, rel: str) -> str:
+        return "/media/proxy/" + str(PurePosixPath(rel).with_suffix("")) + "/index.m3u8"
+
+    def thumb_url(self, rel: str) -> str:
+        return "/media/thumb/" + str(PurePosixPath(rel).with_suffix("")) + "/"
+
+    def bump(self):
+        self.rev += 1
+
+    def ensure_dirs(self):
+        for k in ("record", "proxy", "subclip", "thumbnail"):
+            self.cfg.path_of(k).mkdir(parents=True, exist_ok=True)
+
+    def close_stale_playlists(self):
+        """At startup nothing records: every EVENT playlist must be closed."""
+        proxy = self.cfg.path_of("proxy")
+        if proxy.exists():
+            for m3u8 in proxy.rglob("index.m3u8"):
+                close_playlist(m3u8)
+
+    # ---------- listing ----------
+    async def list_dir(self, root: str, rel: str) -> dict:
+        d = self.resolve(root, rel)
+        if not d.is_dir():
+            raise MediaError("폴더가 없습니다")
+        base = self.root_dir(root).resolve()
+        hidden = self._hidden_dirs() if root == "capture" else set()
+        recording = self.recording_rels() if root == "capture" else {}
+        folders, files = [], []
+        ffprobe = self.cfg.section("ffmpeg")["ffprobe"]
+        for e in sorted(os.scandir(d), key=lambda e: e.name.lower()):
+            if e.name.startswith("."):
+                continue
+            p = Path(e.path)
+            r = str(p.resolve().relative_to(base)) if p.resolve() != base else ""
+            try:
+                st = e.stat()
+            except OSError:
+                continue
+            if e.is_dir():
+                if p.resolve() in hidden:
+                    continue
+                folders.append({"name": e.name, "path": r, "mtime": st.st_mtime})
+                continue
+            if p.suffix.lower() not in MEDIA_EXTS:
+                continue
+            item = {"name": e.name, "path": r, "size": st.st_size, "mtime": st.st_mtime}
+            if root == "capture":
+                item.update(await self._clip_meta(r, p, recording, ffprobe))
+            else:
+                info = await probe(ffprobe, p)
+                item["duration"] = info.get("duration")
+            files.append(item)
+        files.sort(key=lambda f: f["mtime"], reverse=True)
+        return {"root": root, "path": str(d.relative_to(base)) if d != base else "",
+                "folders": folders, "files": files, "rev": self.rev}
+
+    async def _clip_meta(self, rel, p, recording, ffprobe) -> dict:
+        m3u8 = self.proxy_dir(rel) / "index.m3u8"
+        hls = hls_info(m3u8)
+        meta = {"recording": rel in recording, "has_proxy": hls is not None and hls["segments"] > 0,
+                "proxy_building": rel in self.proxy_jobs}
+        if rel in recording:
+            meta["duration"] = recording[rel]
+        elif hls and hls["ended"]:
+            meta["duration"] = hls["duration"]
+        else:
+            meta["duration"] = (await probe(ffprobe, p)).get("duration")
+        return meta
+
+    async def clip_info(self, rel: str) -> dict:
+        p = self.resolve("capture", rel)
+        if not p.is_file():
+            raise MediaError("파일이 없습니다")
+        rel = str(p.relative_to(self.root_dir("capture").resolve()))
+        recording = self.recording_rels()
+        hls = hls_info(self.proxy_dir(rel) / "index.m3u8")
+        meta = {"interval": self.cfg.section("thumbnail")["interval"]}
+        try:
+            meta.update(json.loads((self.thumb_dir(rel) / "meta.json").read_text()))
+        except (OSError, ValueError):
+            pass
+        info = await probe(self.cfg.section("ffmpeg")["ffprobe"], p)
+        return {
+            "path": rel, "name": p.name, "recording": rel in recording,
+            "duration": recording.get(rel) or (hls or {}).get("duration") or info.get("duration"),
+            "proxy": self.proxy_url(rel) if hls and hls["segments"] > 0 else None,
+            "proxy_ended": bool(hls and hls["ended"]),
+            "proxy_building": rel in self.proxy_jobs,
+            "proxy_error": self.proxy_errors.get(rel, ""),
+            "thumb": {"base": self.thumb_url(rel), "interval": meta["interval"]},
+            "hires": info,
+        }
+
+    # ---------- operations ----------
+    def _check_not_recording(self, root, rel):
+        if root != "capture":
+            for r in self.busy_outputs():
+                if r == rel or r.startswith(rel.rstrip("/") + "/"):
+                    raise MediaError("인코딩 중인 subclip 은 변경할 수 없습니다")
+            return
+        rec = self.recording_rels()
+        for r in rec:
+            if r == rel or r.startswith(rel.rstrip("/") + "/"):
+                raise MediaError("녹화 중인 클립은 변경할 수 없습니다")
+        if rel in self.proxy_jobs:
+            raise MediaError("프록시 생성 중인 클립은 변경할 수 없습니다")
+
+    def mkdir(self, root, rel, name):
+        d = self.resolve(root, rel) / clean_name(name)
+        if d.exists():
+            raise MediaError("이미 존재합니다")
+        d.mkdir(parents=True)
+        log.info("mkdir %s:%s", root, d)
+        self.bump()
+
+    def _move_side(self, src_rel: str, dst_rel: str):
+        """Keep proxy / thumbnail trees in step with the hires file or folder."""
+        for f in (self.proxy_dir, self.thumb_dir):
+            s, t = f(src_rel), f(dst_rel)
+            if s.exists():
+                t.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(s, t)
+
+    def rename(self, root, rel, new_name):
+        if not rel:
+            raise MediaError("루트는 변경할 수 없습니다")
+        self._check_not_recording(root, rel)
+        p = self.resolve(root, rel)
+        if not p.exists():
+            raise MediaError("파일이 없습니다")
+        new_name = clean_name(new_name)
+        if p.is_file() and not Path(new_name).suffix:
+            new_name += p.suffix
+        t = p.with_name(new_name)
+        if t.exists():
+            raise MediaError("같은 이름이 이미 있습니다")
+        base = self.root_dir(root).resolve()
+        os.replace(p, t)
+        if root == "capture":
+            self._move_side(rel, str(t.relative_to(base)))
+        log.info("rename %s:%s -> %s", root, rel, t.name)
+        self.bump()
+
+    def move(self, root, rels: list[str], dest: str) -> int:
+        """Move files/folders into folder dest (same root). Capture clips take proxy/thumbnail along."""
+        d = self.resolve(root, dest)
+        if not d.is_dir():
+            raise MediaError("대상 폴더가 없습니다")
+        base = self.root_dir(root).resolve()
+        todo = []
+        for rel in rels:
+            if not rel:
+                raise MediaError("루트는 이동할 수 없습니다")
+            self._check_not_recording(root, rel)
+            p = self.resolve(root, rel)
+            if not p.exists():
+                raise MediaError(f"파일이 없습니다: {rel}")
+            if p.is_dir() and (d == p or p in d.parents):
+                raise MediaError("폴더를 자기 자신 안으로 옮길 수 없습니다")
+            t = d / p.name
+            if t == p:
+                continue
+            if t.exists():
+                raise MediaError(f"대상 폴더에 같은 이름이 있습니다: {p.name}")
+            todo.append((rel, p, t))
+        for rel, p, t in todo:   # all checks passed: nothing is half-moved on a name clash
+            os.replace(p, t)
+            if root == "capture":
+                self._move_side(rel, str(t.relative_to(base)))
+            log.info("move %s:%s -> %s", root, rel, t.relative_to(base))
+        self.bump()
+        return len(todo)
+
+    def delete(self, root, rels: list[str]):
+        for rel in rels:
+            if not rel:
+                raise MediaError("루트는 삭제할 수 없습니다")
+            self._check_not_recording(root, rel)
+            p = self.resolve(root, rel)
+            if p.is_dir():
+                shutil.rmtree(p)
+            elif p.exists():
+                p.unlink()
+            if root == "capture":
+                for side in (self.proxy_dir(rel), self.thumb_dir(rel)):
+                    if side.exists():
+                        shutil.rmtree(side, ignore_errors=True)
+            log.info("delete %s:%s", root, rel)
+        self.bump()
+
+    # ---------- proxy generation for clips that have none ----------
+    async def make_proxy(self, rel: str):
+        p = self.resolve("capture", rel)
+        if not p.is_file():
+            raise MediaError("파일이 없습니다")
+        rel = str(p.relative_to(self.root_dir("capture").resolve()))
+        if rel in self.proxy_jobs:
+            return
+        if rel in self.recording_rels():
+            raise MediaError("녹화 중인 클립입니다")
+        ff = self.cfg.section("ffmpeg")
+        px, tcfg = self.cfg.section("record_proxy"), self.cfg.section("thumbnail")
+        pdir, tdir = self.proxy_dir(rel), self.thumb_dir(rel)
+        for d in (pdir, tdir):
+            if d.exists():
+                shutil.rmtree(d)
+            d.mkdir(parents=True)
+        (tdir / "meta.json").write_text(json.dumps({"interval": tcfg["interval"]}))
+        w, h = px["width"], px["height"]
+        fc = (f"[0:v:0]bwdif=mode=0:deint=interlaced,scale={w}:{h}:force_original_aspect_ratio=decrease,"
+              f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={px['fps']},format=yuv420p,split=2[p][t0];"
+              f"[t0]fps=1/{tcfg['interval']},scale={tcfg['width']}:{tcfg['height']}[t]")
+        args = [ff["ffmpeg"], "-hide_banner", "-nostdin", "-nostats", "-progress", "pipe:1",
+                "-loglevel", "level+info", "-i", str(p), "-filter_complex", fc,
+                "-map", "[p]", "-map", "0:a:0?", *video_args(px, "v"), "-ac", "2",
+                "-c:a", px["acodec"], "-b:a", px["abitrate"], *hls_args(px, pdir),
+                "-map", "[t]", "-c:v", "mjpeg", "-q:v", str(tcfg["quality"]), "-f", "image2",
+                str(tdir / "%06d.jpg")]
+        info = await probe(ff["ffprobe"], p)
+        job = FFmpegProcess(f"proxy:{p.name}", args)
+        self.proxy_jobs[rel] = job
+        self.proxy_progress[rel] = {"name": p.name, "duration": info.get("duration") or 0}
+        self.bump()
+        await job.start()
+        asyncio.create_task(self._proxy_done(rel, job))
+
+    async def _proxy_done(self, rel, job):
+        rc = await job.wait()
+        close_playlist(self.proxy_dir(rel) / "index.m3u8")
+        if rc != 0:
+            self.proxy_errors[rel] = job.error_text() or f"ffmpeg rc={rc}"
+            log.error("proxy failed %s: %s", rel, self.proxy_errors[rel])
+        else:
+            self.proxy_errors.pop(rel, None)
+        self.proxy_jobs.pop(rel, None)
+        self.proxy_progress.pop(rel, None)
+        self.bump()
+
+    def proxy_status(self) -> list[dict]:
+        out = []
+        for rel, job in self.proxy_jobs.items():
+            meta = self.proxy_progress.get(rel, {})
+            dur = meta.get("duration") or 0
+            t = job.out_time()
+            out.append({"path": rel, "name": meta.get("name"), "time": t,
+                        "progress": min(100.0, t / dur * 100) if dur else None,
+                        "speed": job.progress.get("speed")})
+        return out
+
+    async def stop_all(self):
+        await asyncio.gather(*(j.stop() for j in self.proxy_jobs.values()), return_exceptions=True)
+
+
+def video_args(c: dict, stream: str = "v") -> list[str]:
+    """Encoder args for h264_nvenc / hevc_nvenc / libx264 from a record_* section."""
+    codec = c["vcodec"]
+    a = [f"-c:{stream}", codec]
+    if "nvenc" in codec:
+        a += ["-preset", c.get("preset", "p4")]
+        if c.get("profile") and codec == "h264_nvenc":
+            a += ["-profile:v", c["profile"]]
+        a += ["-rc", c.get("rc", "cbr")]
+    elif codec == "libx264":
+        a += ["-preset", c.get("preset", "veryfast")]
+        if c.get("profile"):
+            a += ["-profile:v", c["profile"]]
+        if c.get("rc") == "cbr":
+            a += ["-x264-params", "nal-hrd=cbr"]
+    # mpeg2video (CPU): no preset/profile; CBR = minrate == maxrate == bitrate
+    a += ["-b:v", c["bitrate"]]
+    if c.get("minrate"):
+        a += ["-minrate", c["minrate"]]
+    if c.get("threads"):
+        a += ["-threads", str(c["threads"])]
+    if c.get("maxrate"):
+        a += ["-maxrate", c["maxrate"]]
+    if c.get("bufsize"):
+        a += ["-bufsize", c["bufsize"]]
+    a += ["-g", str(c.get("gop", 30)), "-bf", str(c.get("bframes", 0))]
+    if "nvenc" not in codec:  # nvenc gets nv12 (4:2:0) cuda frames; a CPU pix_fmt would break the hw chain
+        a += ["-pix_fmt", "yuv420p"]
+    return a
+
+
+def hls_args(px: dict, pdir: Path) -> list[str]:
+    return ["-f", "hls", "-hls_time", str(px.get("hls_time", 2)), "-hls_list_size", "0",
+            "-hls_playlist_type", "event", "-hls_flags", "independent_segments",
+            "-hls_segment_filename", str(pdir / "seg_%06d.ts"), str(pdir / "index.m3u8")]
+

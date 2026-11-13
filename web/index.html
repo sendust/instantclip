@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>instantclip</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%233d9df3'/%3E%3Cpath d='M5 4l7 4-7 4z' fill='white'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">instant<b>clip</b></div>
+  <div class="top-status">
+    <span id="ws-state" class="dot off" title="서버 연결"></span>
+    <span id="audio-unlock" class="hint" hidden>오디오 미터를 켜려면 화면을 한 번 클릭하세요</span>
+    <span id="clock" class="mono"></span>
+  </div>
+</header>
+
+<main class="layout">
+  <div id="left-col">
+  <!-- ============ 1. 녹화제어 ============ -->
+  <section class="panel" id="p-record">
+    <h2><span class="num">1</span>녹화제어</h2>
+    <div class="row">
+      <select id="rec-device" class="grow" title="DeckLink 입력"></select>
+      <button id="rec-refresh" class="icon" title="장치 목록 새로고침">⟳</button>
+    </div>
+    <div class="row">
+      <input id="rec-prefix" class="grow" placeholder="클립 이름 접두어 (기본 REC)" maxlength="60">
+    </div>
+    <div class="row rec-buttons">
+      <button id="rec-start" class="rec">● REC</button>
+      <button id="rec-stop" class="stop">■ STOP</button>
+      <div class="rec-info">
+        <div id="rec-state" class="badge">IDLE</div>
+      </div>
+    </div>
+    <div class="rec-clocks">
+      <div class="clock-box"><label>녹화 시간</label><span id="rec-time" class="mono">00:00:00</span></div>
+      <div class="clock-box" id="remain-box"><label>자동 종료까지</label><span id="rec-remain" class="mono">--:--:--</span></div>
+      <button id="rec-extend" title="자동 종료 시간을 10분 늘립니다">+10분</button>
+    </div>
+    <div id="rec-clip" class="small muted ellipsis"></div>
+    <div id="rec-error" class="error small" hidden></div>
+
+    <div class="live-head">
+      <button id="live-collapse" class="link">▾ Live 모니터</button>
+      <label class="switch small"><input type="checkbox" id="live-input"> 입력 모니터 (녹화 전)</label>
+    </div>
+    <div id="live-body">
+      <div class="live-video">
+        <video id="live-video" muted playsinline autoplay></video>
+        <div id="live-msg" class="video-msg">no signal</div>
+        <div id="live-nosig" class="nosig" hidden>NO INPUT SIGNAL</div>
+      </div>
+      <div class="meter" id="live-meter"></div>
+      <div class="row">
+        <button id="live-mute" class="toggle">MUTE</button>
+        <span class="small muted">클릭하여 live 오디오 켜기/끄기</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="hsplit" id="left-split" title="드래그하여 높이 조절 (더블클릭: 기본값)"></div>
+  <!-- ============ 5. 시스템 상태 ============ -->
+  <section class="panel" id="p-system">
+    <h2><span class="num">5</span>시스템 상태</h2>
+    <div id="sys-grid" class="sys-grid"></div>
+    <h3>Subclip 인코더 큐 <button id="jobs-clear" class="small right">완료 항목 지우기</button></h3>
+    <div id="jobs" class="jobs"></div>
+  </section>
+  </div>
+
+  <!-- ============ 2. 편집제어 ============ -->
+  <section class="panel" id="p-edit">
+    <h2><span class="num">2</span>편집제어 <span id="ed-title" class="clip-title"></span></h2>
+    <div class="editor">
+      <div id="player" class="player" tabindex="0" title="클릭하여 단축키 활성화">
+        <video id="ed-video" playsinline preload="auto"></video>
+        <div id="ed-drop" class="drop-hint">미디어 브라우저에서 클립을 끌어다 놓으세요</div>
+        <div id="ed-msg" class="video-msg" hidden></div>
+        <div id="ed-keys" class="keys-badge">⌨ 단축키 활성</div>
+        <div id="ed-rec" class="rec-badge" hidden>● REC</div>
+      </div>
+      <div class="meter vertical" id="ed-meter"></div>
+    </div>
+
+    <div id="timeline" class="timeline">
+      <div class="tl-buffer" id="tl-buffer"></div>
+      <div class="tl-range" id="tl-range"></div>
+      <div class="tl-played" id="tl-played"></div>
+      <div class="tl-mark in" id="tl-in"></div>
+      <div class="tl-mark out" id="tl-out"></div>
+      <div class="tl-head" id="tl-head"></div>
+      <div class="tl-hover" id="tl-hover" hidden>
+        <img id="tl-thumb" alt="">
+        <div id="tl-hover-time" class="mono"></div>
+      </div>
+    </div>
+
+    <div class="transport">
+      <div class="tc-block"><label>POSITION</label><span id="tc-pos" class="mono">00:00:00:00</span></div>
+      <div class="tc-block"><label>DURATION</label><span id="tc-total" class="mono">00:00:00:00</span></div>
+      <div class="btns">
+        <button data-act="in-jump" title="Ctrl+I">⇤ IN</button>
+        <button data-act="ud-" title="↓">«60</button>
+        <button data-act="lr-" title="←">«10</button>
+        <button data-act="frame-">‹ 1F</button>
+        <button data-act="play" id="btn-play" title="Space / K">▶</button>
+        <button data-act="frame+">1F ›</button>
+        <button data-act="lr+" title="→">10»</button>
+        <button data-act="ud+" title="↑">60»</button>
+        <button data-act="out-jump" title="Ctrl+O">OUT ⇥</button>
+      </div>
+      <div class="vol">
+        <button id="ed-mute" class="icon" title="소리 켜기/끄기">SND</button>
+        <input type="range" id="ed-vol" min="0" max="1" step="0.05" value="1">
+      </div>
+    </div>
+
+    <div class="marks">
+      <div class="mark-box in"><label>MARK IN <kbd>I</kbd></label><span id="tc-in" class="mono">--:--:--:--</span><small id="sec-in"></small>
+        <button data-act="mark-in">SET</button></div>
+      <div class="mark-box out"><label>MARK OUT <kbd>O</kbd></label><span id="tc-out" class="mono">--:--:--:--</span><small id="sec-out"></small>
+        <button data-act="mark-out">SET</button></div>
+      <div class="mark-box dur"><label>DURATION</label><span id="tc-dur" class="mono">--:--:--:--</span><small id="sec-dur"></small>
+        <button data-act="clear-marks">CLEAR</button></div>
+      <div class="mark-box cnt"><label>SUBCLIP 번호</label><span id="cnt-next" class="mono">[---]</span><small>다음 번호</small>
+        <button id="cnt-reset" title="이 소스 클립의 subclip 번호를 [001] 부터 다시 시작">RESET</button></div>
+      <button id="btn-queue" class="primary" data-act="queue" title="Enter">⏎ SUBCLIP<br><small>인코더 큐에 등록</small></button>
+    </div>
+    <details class="help">
+      <summary>단축키 (플레이어에 포커스가 있을 때만 동작)</summary>
+      <div class="keys-grid">
+        <span><kbd>I</kbd> mark in</span><span><kbd>O</kbd> mark out</span><span><kbd>Enter</kbd> subclip 큐 등록</span>
+        <span><kbd>Ctrl</kbd>+<kbd>I</kbd> in 으로 이동 (정지)</span><span><kbd>Ctrl</kbd>+<kbd>O</kbd> out 으로 이동 (정지)</span>
+        <span><kbd>Space</kbd>/<kbd>K</kbd> 재생·일시정지</span>
+        <span><kbd>←</kbd>/<kbd>→</kbd> ±<b id="help-lr">10</b>초</span><span><kbd>↓</kbd>/<kbd>↑</kbd> ±<b id="help-ud">60</b>초</span>
+        <span><kbd>J</kbd>/<kbd>L</kbd> ±0.5초</span><span><kbd>,</kbd>/<kbd>.</kbd> ±1 프레임</span>
+      </div>
+    </details>
+  </section>
+
+  <!-- ============ 3. subclip 코덱제어 ============ -->
+  <section class="panel" id="p-codec">
+    <h2><span class="num">3</span>Subclip 코덱 <span id="codec-saved" class="saved" hidden>저장됨</span></h2>
+    <form id="codec-form" class="form" autocomplete="off">
+      <label>비디오 코덱<select name="vcodec">
+        <option value="h264_nvenc">H.264 NVENC (GPU)</option>
+        <option value="hevc_nvenc">HEVC NVENC (GPU)</option>
+        <option value="libx264">H.264 x264 (CPU)</option></select></label>
+      <label>프리셋<select name="preset"></select></label>
+      <label>튜닝<select name="tune"></select></label>
+      <label>프로파일<select name="profile"></select></label>
+      <label>Rate control<select name="rc">
+        <option value="vbr">VBR</option><option value="cbr">CBR</option><option value="cq">CQ / CRF (품질)</option></select></label>
+      <label class="rc-bits">비트레이트<input name="bitrate" list="dl-bitrate"></label>
+      <label class="rc-bits">Max rate<input name="maxrate" list="dl-bitrate" placeholder="(없음)"></label>
+      <label class="rc-bits">Buffer<input name="bufsize" list="dl-bitrate" placeholder="(없음)"></label>
+      <label class="rc-cq">CQ / CRF<input name="cq" type="number" min="0" max="51"></label>
+      <label>GOP size<select name="gop">
+        <option>15</option><option>30</option><option>60</option><option>90</option><option>120</option><option>300</option></select></label>
+      <label>B-frames<select name="bframes"><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option></select></label>
+      <label class="nv-only check"><input type="checkbox" name="spatial_aq"> Spatial AQ</label>
+      <label>해상도<select name="resolution">
+        <option value="source">원본 (1920x1080)</option><option>1920x1080</option><option>1280x720</option>
+        <option>960x540</option><option>854x480</option><option>640x360</option></select></label>
+      <label>프레임레이트<select name="fps">
+        <option value="source">원본 (59.94p)</option><option value="60000/1001">59.94</option>
+        <option value="30000/1001">29.97</option><option value="25">25</option><option value="24000/1001">23.976</option></select></label>
+      <label>컨테이너<select name="container"><option>mp4</option><option>mov</option><option>mkv</option><option>ts</option></select></label>
+      <label class="check"><input type="checkbox" name="faststart"> faststart (moov 앞으로)</label>
+      <label>동시 인코딩 수<select name="workers">
+        <option>1</option><option>2</option><option>3</option><option>4</option><option>6</option><option>8</option></select></label>
+      <label>오디오 코덱<select name="acodec">
+        <option value="aac">AAC</option><option value="libmp3lame">MP3</option>
+        <option value="pcm_s16le">PCM 16bit</option><option value="pcm_s24le">PCM 24bit</option></select></label>
+      <label>오디오 비트레이트<select name="abitrate">
+        <option>96k</option><option>128k</option><option>192k</option><option>256k</option><option>320k</option></select></label>
+      <label class="wide">오디오 gain <span id="gain-read" class="mono"></span>
+        <span class="gain-row"><input type="range" name="audio_gain" min="0" max="4" step="0.05">
+        <button type="button" id="gain-reset" class="small">1.0</button></span></label>
+      <datalist id="dl-bitrate"><option>4M</option><option>8M</option><option>10M</option><option>15M</option>
+        <option>20M</option><option>25M</option><option>35M</option><option>50M</option></datalist>
+    </form>
+    <div class="small muted">파일명: <span id="name-preview" class="mono"></span></div>
+    <div id="codec-warn" class="error small" hidden></div>
+  </section>
+
+  <!-- ============ 4. 호스트 미디어 브라우저 ============ -->
+  <section class="panel" id="p-browser">
+    <h2><span class="num">4</span>호스트 미디어 브라우저</h2>
+    <div class="browsers">
+      <div class="fb" id="fb-capture" data-root="capture">
+        <div class="fb-head"><b>녹화 클립</b><span class="crumb"></span></div>
+        <div class="fb-tools">
+          <button data-op="up" title="상위 폴더">↑</button>
+          <button data-op="refresh" title="새로고침">⟳</button>
+          <button data-op="mkdir">+ 폴더</button>
+          <button data-op="rename">이름변경</button>
+          <button data-op="delete" class="danger">삭제</button>
+          <select class="fb-sort" title="정렬"><option value="name">이름</option><option value="mtime">생성일시</option></select>
+          <button data-op="sortdir" class="fb-dir">↓</button>
+          <button data-op="load" class="right">▶ 플레이어로</button>
+        </div>
+        <div class="fb-list"></div>
+      </div>
+      <div class="fb" id="fb-subclip" data-root="subclip">
+        <div class="fb-head"><b>Subclip</b><span class="crumb"></span><span class="small muted">새 subclip 은 현재 폴더에 저장 · 여러 개 선택 후 폴더로 끌면 이동</span></div>
+        <div class="fb-tools">
+          <button data-op="up" title="상위 폴더">↑</button>
+          <button data-op="refresh" title="새로고침">⟳</button>
+          <button data-op="mkdir">+ 폴더</button>
+          <button data-op="rename">이름변경</button>
+          <button data-op="delete" class="danger">삭제</button>
+          <select class="fb-sort" title="정렬"><option value="name">이름</option><option value="mtime">생성일시</option></select>
+          <button data-op="sortdir" class="fb-dir">↓</button>
+          <button data-op="download" class="right">⤓ 다운로드</button>
+        </div>
+        <div class="fb-list"></div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="/static/vendor/hls.min.js"></script>
+<script src="/static/vendor/reader.js"></script>
+<script src="/static/util.js"></script>
+<script src="/static/meter.js"></script>
+<script src="/static/record.js"></script>
+<script src="/static/player.js"></script>
+<script src="/static/codec.js"></script>
+<script src="/static/browser.js"></script>
+<script src="/static/system.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,115 @@
+{
+  "http": {
+    "host": "0.0.0.0",
+    "port": 8090
+  },
+  "paths": {
+    "record": "/mnt/raid0_old/capture",
+    "proxy": "/mnt/raid0_old/capture/proxy",
+    "subclip": "/mnt/raid0_old/output",
+    "thumbnail": "/mnt/raid0_old/capture/thumbnail"
+  },
+  "log": {
+    "dir": "logs",
+    "level": "INFO",
+    "max_bytes": 10485760,
+    "backup_count": 10
+  },
+  "ffmpeg": {
+    "ffmpeg": "/usr/local/bin/ffmpeg",
+    "ffprobe": "/usr/local/bin/ffprobe"
+  },
+  "mediamtx": {
+    "rtsp_url": "rtsp://127.0.0.1:8554",
+    "webrtc_url": "",
+    "webrtc_port": 8889,
+    "path_prefix": "instantclip_"
+  },
+  "capture": {
+    "format_code": "Hi59",
+    "audio_channels": 2,
+    "deinterlace": "bwdif_cuda=mode=1",
+    "name_template": "{prefix}_%Y%m%d_%H%M%S",
+    "default_prefix": "REC",
+    "auto_stop_sec": 7200,
+    "extend_sec": 600
+  },
+  "record_hires": {
+    "container": "ts",
+    "vcodec": "mpeg2video",
+    "bitrate": "35M",
+    "minrate": "35M",
+    "maxrate": "35M",
+    "bufsize": "9781k",
+    "gop": 30,
+    "bframes": 2,
+    "threads": 16,
+    "acodec": "aac",
+    "abitrate": "256k",
+    "extra_args": [
+      "-intra_vlc",
+      "1",
+      "-non_linear_quant",
+      "1",
+      "-qmin",
+      "1",
+      "-qmax",
+      "28"
+    ]
+  },
+  "record_proxy": {
+    "width": 854,
+    "height": 480,
+    "fps": "30000/1001",
+    "vcodec": "h264_nvenc",
+    "preset": "p4",
+    "rc": "cbr",
+    "bitrate": "4M",
+    "maxrate": "4M",
+    "bufsize": "8M",
+    "gop": 30,
+    "acodec": "aac",
+    "abitrate": "128k",
+    "hls_time": 2
+  },
+  "live": {
+    "width": 640,
+    "height": 360,
+    "bitrate": "1500k",
+    "gop": 30,
+    "abitrate": "128k"
+  },
+  "editor": {
+    "seek_lr": 10,
+    "seek_ud": 60
+  },
+  "thumbnail": {
+    "interval": 2,
+    "width": 160,
+    "height": 90,
+    "quality": 5
+  },
+  "subclip": {
+    "vcodec": "h264_nvenc",
+    "preset": "p5",
+    "tune": "hq",
+    "profile": "high",
+    "rc": "vbr",
+    "bitrate": "10M",
+    "maxrate": "25M",
+    "bufsize": "40M",
+    "cq": 23,
+    "gop": 30,
+    "bframes": 2,
+    "spatial_aq": true,
+    "resolution": "source",
+    "fps": "30000/1001",
+    "container": "mp4",
+    "faststart": true,
+    "acodec": "aac",
+    "abitrate": "192k",
+    "audio_gain": 1.0,
+    "name_template": "{src}_[{n:03d}]_{start:.2f}_{end:.2f}_{dur:.2f}",
+    "workers": 2
+  }
+}
