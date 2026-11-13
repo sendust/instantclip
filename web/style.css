@@ -94,9 +94,16 @@ kbd { font: 10px var(--mono); background: #0f1318; border: 1px solid var(--line)
 .eject-btn { margin-left: auto; font-size: 11px; padding: 1px 8px; }
 .fold-btn { margin-left: auto; background: none; border: 1px solid var(--line); color: var(--muted); padding: 0 7px; line-height: 18px; border-radius: 3px; }
 .fold-btn:hover { color: var(--text); border-color: var(--accent); }
-.layout.codec-folded #p-codec > :not(h2) { display: none; }
-.layout.codec-folded #p-codec h2 { margin: 0; }
+.fold-btn + .fold-btn { margin-left: 0; }
+/* ▾/▸ collapses the settings up to the header (like the Live 모니터), giving 시스템 상태 the room */
+#p-codec.collapsed > :not(h2) { display: none; }
+#p-codec.collapsed h2 { margin: 0; }
+#codec-fold { display: none; }   /* the right-side strip exists only in the 3-column layout */
 @media (min-width: 1501px) {
+  #codec-fold { display: inline-block; }
+  .layout.codec-folded #p-codec > :not(h2) { display: none; }
+  .layout.codec-folded #p-codec h2 { margin: 0; }
+  .layout.codec-folded #codec-collapse { display: none; }
   .layout.codec-folded { grid-template-columns: 430px minmax(560px, 1fr) 34px; }
   .layout.codec-folded #p-codec { padding: 8px 4px; cursor: pointer; }
   .layout.codec-folded #p-codec h2 { writing-mode: vertical-rl; white-space: nowrap; }

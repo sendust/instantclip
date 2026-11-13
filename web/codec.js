@@ -38,9 +38,10 @@ const Codec = {
     let folded = false;
     try { folded = localStorage.getItem("ic.codecFolded") === "1"; } catch (_) {}
     const apply = () => {
-      layout.classList.toggle("codec-folded", folded);
-      btn.textContent = wide.matches ? (folded ? "«" : "»") : (folded ? "▸" : "▾");
-      btn.title = folded ? "펼치기" : wide.matches ? "접기 (시스템 상태 포함)" : "접기";
+      // the right strip only exists in the 3-column layout; elsewhere the panel stays as is
+      layout.classList.toggle("codec-folded", folded && wide.matches);
+      btn.textContent = folded ? "«" : "»";
+      btn.title = folded ? "펼치기" : "오른쪽으로 접기 (시스템 상태 포함)";
     };
     const set = (v) => {
       folded = v;
@@ -51,6 +52,23 @@ const Codec = {
     $("#p-codec").addEventListener("click", () => { if (folded && wide.matches) set(false); });
     wide.addEventListener("change", apply);
     apply();
+
+    // ▾/▸: collapse the settings to the header (independent of the right-side fold)
+    const panel = $("#p-codec"), cbtn = $("#codec-collapse");
+    let collapsed = false;
+    try { collapsed = localStorage.getItem("ic.codecCollapsed") === "1"; } catch (_) {}
+    const applyC = () => {
+      panel.classList.toggle("collapsed", collapsed);
+      cbtn.textContent = collapsed ? "▸" : "▾";
+      cbtn.title = collapsed ? "펼치기" : "위로 접기";
+    };
+    cbtn.onclick = (e) => {
+      e.stopPropagation();
+      collapsed = !collapsed;
+      try { localStorage.setItem("ic.codecCollapsed", collapsed ? "1" : "0"); } catch (_) {}
+      applyC();
+    };
+    applyC();
   },
 
   fillLists(codec) {
