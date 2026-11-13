@@ -87,6 +87,10 @@ kbd { font: 10px var(--mono); background: #0f1318; border: 1px solid var(--line)
 }
 
 /* subclip 코덱 panel folds: to a thin strip on the right (3-column layout), to its header otherwise */
+/* what is loaded in the editor: recording source (editable) or subclip (preview only) */
+.ed-mode { font-size: 15px; font-weight: 800; letter-spacing: .3px; padding: 3px 12px; border-radius: 4px; white-space: nowrap; }
+.ed-mode.edit { background: #1f8f4e; color: #fff; box-shadow: 0 0 0 1px #3ddc84 inset; }
+.ed-mode.preview { background: #d97706; color: #111; box-shadow: 0 0 0 1px #fbbf24 inset; }
 .eject-btn { margin-left: auto; font-size: 11px; padding: 1px 8px; }
 .fold-btn { margin-left: auto; background: none; border: 1px solid var(--line); color: var(--muted); padding: 0 7px; line-height: 18px; border-radius: 3px; }
 .fold-btn:hover { color: var(--text); border-color: var(--accent); }

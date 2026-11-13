@@ -111,7 +111,7 @@ const Player = {
     this.detach();
     this.clip = { subclip: true, path, name: path.split("/").pop() };
     this.markIn = this.markOut = null;
-    $("#ed-title").textContent = `${path}  (subclip 미리보기 — 편집 불가)`;
+    $("#ed-title").textContent = path;
     this.loadCounter();
     this.v.src = `/api/files/download?root=subclip&path=${encodeURIComponent(path)}&inline=1`;
     this.msg(null);
@@ -410,5 +410,12 @@ const Player = {
     $("#ed-rec").hidden = !(this.clip && !this.clip.subclip && this.live);   // open EVENT playlist = still recording
     $("#ed-drop").hidden = !!this.clip;
     $("#ed-eject").disabled = !this.clip;
+    const mode = $("#ed-mode");
+    mode.hidden = !this.clip;
+    if (this.clip) {
+      const sub = !!this.clip.subclip;
+      mode.className = "ed-mode " + (sub ? "preview" : "edit");
+      mode.textContent = sub ? "▶ 프리뷰 전용 — 편집 불가 (SUBCLIP)" : "✎ 편집 가능 — 녹화 원본";
+    }
   },
 };
