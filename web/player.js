@@ -274,6 +274,11 @@ const Player = {
   outEnd() { return this.markOut + FRAME; },
 
   /* next subclip number of the loaded source clip */
+  /* another user (or tab) took or reset a number: refresh the "next" box */
+  onCounterRev(rev) {
+    if (rev !== this.counterRev && this.counterRev !== undefined) this.loadCounter();
+    this.counterRev = rev;
+  },
   async loadCounter() {
     const el = $("#cnt-next");
     if (!this.clip || this.clip.subclip) { el.textContent = "[---]"; return; }

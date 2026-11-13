@@ -274,7 +274,8 @@ async def job_clear():
 # ---------------- status ----------------
 def status() -> dict:
     return {"recorders": recorder.status(), "jobs": encoder.status(), "proxies": media.proxy_status(),
-            "sys": sysmon.data, "rev": media.rev}
+            "sys": sysmon.data, "rev": media.rev,
+            "counter_rev": encoder.counter_rev}
 
 
 @app.get("/api/status")

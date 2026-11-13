@@ -38,6 +38,7 @@ class Media:
         self.rev = 0                     # bumped on every change -> clients refresh lists
         self.recording_rels = lambda: {}  # set by recorder: rel -> elapsed seconds
         self.busy_outputs = lambda: set()   # set by encoder: subclip rels still being written
+        self.busy_sources = lambda: set()   # set by encoder: capture rels that pending jobs still read
         self.proxy_jobs: dict[str, FFmpegProcess] = {}
         self.proxy_progress: dict[str, dict] = {}
         self.proxy_errors: dict[str, str] = {}   # rel -> last generation failure
@@ -169,10 +170,11 @@ class Media:
                 if r == rel or r.startswith(rel.rstrip("/") + "/"):
                     raise MediaError("인코딩 중인 subclip 은 변경할 수 없습니다")
             return
-        rec = self.recording_rels()
-        for r in rec:
-            if r == rel or r.startswith(rel.rstrip("/") + "/"):
-                raise MediaError("녹화 중인 클립은 변경할 수 없습니다")
+        under = lambda r: r == rel or r.startswith(rel.rstrip("/") + "/")
+        if any(under(r) for r in self.recording_rels()):
+            raise MediaError("녹화 중인 클립은 변경할 수 없습니다")
+        if any(under(r) for r in self.busy_sources()):
+            raise MediaError("subclip 작업(대기/인코딩)이 남아 있는 클립은 변경할 수 없습니다")
         if rel in self.proxy_jobs:
             raise MediaError("프록시 생성 중인 클립은 변경할 수 없습니다")
 

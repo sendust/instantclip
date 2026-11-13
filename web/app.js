@@ -24,6 +24,7 @@ const App = {
       const st = JSON.parse(e.data);
       Record.setDevices(st.recorders);
       Browser.onStatus(st);
+      Player.onCounterRev(st.counter_rev);
       System.render(st.sys);
       System.renderJobs(st.jobs, st.proxies);
     };

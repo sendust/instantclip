@@ -56,6 +56,7 @@ class Encoder:
         self.jobs: list[Job] = []
         self.task: asyncio.Task | None = None
         self.counters: dict[str, int] = {}
+        self.counter_rev = 0
         try:
             self.counters = json.loads(STATE_PATH.read_text()).get("counters", {})
         except (OSError, ValueError):
@@ -63,6 +64,7 @@ class Encoder:
 
     def start(self):
         self.media.busy_outputs = lambda: {j.out_rel for j in self.jobs if j.state in ("queued", "waiting", "running")}
+        self.media.busy_sources = lambda: {j.source for j in self.jobs if j.state in ("queued", "waiting", "running")}
         self.task = asyncio.create_task(self._dispatch())
 
     def limit(self) -> int:
@@ -71,6 +73,7 @@ class Encoder:
 
     # ---------- naming / counter ----------
     def _save_counters(self):
+        self.counter_rev += 1   # pushed in /ws status so every browser re-reads its "next" number
         tmp = STATE_PATH.with_suffix(".json.tmp")
         tmp.write_text(json.dumps({"counters": self.counters}, indent=1, ensure_ascii=False))
         os.replace(tmp, STATE_PATH)
