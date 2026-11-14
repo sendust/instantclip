@@ -166,8 +166,14 @@ button.toggle.on { background: #1d4d33; border-color: var(--in); }
 .player.dragover { border-color: var(--in); border-style: dashed; }
 .player video { width: 100%; height: 100%; display: block; }
 .drop-hint { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); pointer-events: none; }
-.keys-badge { position: absolute; top: 6px; right: 6px; font-size: 10px; padding: 1px 6px; background: var(--accent); color: #fff; border-radius: 3px; opacity: 0; transition: opacity .15s; }
-.player:focus .keys-badge { opacity: .9; }
+/* always shows whether the shortcuts reach the player (they work only while it has focus) */
+.keys-badge { position: absolute; top: 8px; right: 8px; z-index: 2; font-size: 14px; font-weight: 800; padding: 4px 12px;
+  border-radius: 4px; pointer-events: none; color: #fff; background: rgba(190, 40, 40, .92); box-shadow: 0 0 0 1px #ff7b72 inset; }
+.keys-badge .on { display: none; }
+.player:focus .keys-badge { background: rgba(31, 143, 78, .95); box-shadow: 0 0 0 1px #3ddc84 inset; }
+.player:focus .keys-badge .on { display: inline; }
+.player:focus .keys-badge .off { display: none; }
+.player:not(:focus) { border-color: #6b2a2a; }
 .rec-badge { position: absolute; top: 6px; left: 6px; font-size: 11px; font-weight: 700; padding: 1px 6px; background: var(--rec); color: #fff; border-radius: 3px; }
 
 .timeline { position: relative; height: 26px; margin: 10px 0 4px; background: #0b0e12; border: 1px solid var(--line); border-radius: 3px; cursor: pointer; user-select: none; }
