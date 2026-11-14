@@ -93,7 +93,6 @@
         <video id="ed-video" playsinline preload="auto"></video>
         <div id="ed-drop" class="drop-hint">미디어 브라우저에서 클립을 끌어다 놓으세요</div>
         <div id="ed-msg" class="video-msg" hidden></div>
-        <div id="ed-keys" class="keys-badge"><span class="on">⌨ 단축키 사용 가능</span><span class="off">⌨ 단축키 꺼짐 — 플레이어를 클릭하세요</span></div>
         <div id="ed-rec" class="rec-badge" hidden>● REC</div>
       </div>
       <div class="meter vertical" id="ed-meter"></div>
@@ -144,7 +143,8 @@
       <button id="btn-queue" class="primary" data-act="queue" title="Enter">⏎ SUBCLIP<br><small>인코더 큐에 등록</small></button>
     </div>
     <details class="help">
-      <summary>단축키 (플레이어에 포커스가 있을 때만 동작)</summary>
+      <summary>단축키 (플레이어에 포커스가 있을 때만 동작)
+        <span id="ed-keys" class="keys-badge"><span class="on">⌨ 단축키 사용 가능</span><span class="off">⌨ 단축키 꺼짐 — 플레이어를 클릭하세요</span></span></summary>
       <div class="keys-grid">
         <span><kbd>I</kbd> mark in</span><span><kbd>O</kbd> mark out</span><span><kbd>Enter</kbd> subclip 큐 등록</span>
         <span><kbd>Ctrl</kbd>+<kbd>I</kbd> in 으로 이동 (정지)</span><span><kbd>Ctrl</kbd>+<kbd>O</kbd> out 으로 이동 (정지)</span>

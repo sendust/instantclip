@@ -31,6 +31,10 @@ const Player = {
     Meters.views.add(this);
 
     this.box.addEventListener("keydown", (e) => this.onKey(e));
+    // shortcut on/off badge beside the 단축키 help line follows the player's focus
+    const keys = $("#ed-keys");
+    this.box.addEventListener("focus", () => keys.classList.add("active"));
+    this.box.addEventListener("blur", () => keys.classList.remove("active"));
     this.box.addEventListener("click", () => this.box.focus());
     this.v.addEventListener("dblclick", () => this.toggle());
     this.v.addEventListener("play", () => this.syncPlayBtn());
