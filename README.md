@@ -118,6 +118,13 @@ MPEG-2 는 NVENC 가 지원하지 않아 CPU 로 인코딩한다 (실측: 1080p5
 mark in 프레임은 subclip 에 포함되고 mark out 프레임은 포함되지 않는다 (duration = out − in 프레임, 마지막 프레임은 out 바로 앞 프레임).
 녹화 중인 소스의 subclip 은 대기(WAITING) 중에 인코딩 슬롯을 차지하지 않는다.
 
+### 세션 복원 (클라이언트 IP 별)
+
+편집제어 상태(불러온 클립, 플레이헤드 위치, 재생/정지, mark in/out)를 서버가 접속 IP 별로 기억한다.
+새로고침하거나 같은 IP 에서 다시 접속하면 그 클립을 다시 불러와 같은 위치로 가고, 재생 중이었으면 이어서 재생한다
+(브라우저 자동재생 정책에 막히면 위치만 복원하고 ▶ 안내). EJECT 하면 빈 상태가 기억된다.
+`sessions.json` 에 저장 (30일 지난 항목은 시작할 때 정리). 같은 IP 의 여러 브라우저는 하나의 세션을 공유한다.
+
 ## 로그
 
 `logs/instantclip.log` (앱 이벤트), `logs/ffmpeg.log` (모든 ffmpeg 명령줄과 stderr). 10 MB × 10 회전.
@@ -133,5 +140,6 @@ app/recorder.py   채널(장치)별 preview / record ffmpeg
 app/media.py      저장소 레이아웃, 브라우저 동작, proxy 생성
 app/encoder.py    subclip 큐/워커
 app/sysmon.py     psutil + NVML 상태 수집
+app/session.py    클라이언트 IP 별 편집 세션 (sessions.json)
 web/              index.html, style.css, *.js (vendor: hls.js 1.5.20, mediamtx reader.js)
 ```

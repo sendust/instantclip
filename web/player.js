@@ -45,6 +45,13 @@ const Player = {
     this.v.addEventListener("pause", () => this.syncPlayBtn());
     this.v.addEventListener("loadeddata", () => this.setAudio());
 
+    // per-IP session on the server: what is loaded, where, playing or not; restored on reload
+    for (const ev of ["play", "pause", "seeked"]) this.v.addEventListener(ev, () => this.saveSession());
+    this.v.addEventListener("timeupdate", () => { if (Date.now() - (this.sessAt || 0) > 2000) this.saveSession(); });
+    this.v.addEventListener("loadedmetadata", () => this.resumeSession());
+    this.v.addEventListener("error", () => { if (this.resume && this.v.getAttribute("src")) this.resume = null; });
+    addEventListener("pagehide", () => this.saveSession(true));
+
     // drag & drop from the media browser
     this.box.addEventListener("dragover", (e) => {
       if (e.dataTransfer.types.includes("application/x-instantclip")) { e.preventDefault(); this.box.classList.add("dragover"); }
@@ -80,6 +87,7 @@ const Player = {
     // opened from the browser (double-click / Enter / button): the shortcuts need the player focused,
     // else Space etc. go to the file list. Not on proxy polls, which would steal focus every 2 s.
     if (!polling) this.box.focus({ preventScroll: true });
+    if (this.resume && this.resume.path !== path) this.resume = null;   // another clip opened meanwhile
     if (root === "subclip") return this.loadSubclip(path);
     let info;
     try { info = await api("GET", `/api/clip?path=${encodeURIComponent(path)}`); }
@@ -90,6 +98,7 @@ const Player = {
     this.queued = false;
     $("#ed-title").textContent = info.path;
     this.loadCounter();
+    if (!polling) this.saveSession(false, 0);
     if (!info.proxy) {
       this.detach();
       // a poll that finds no proxy and no running job means generation failed: don't loop
@@ -112,6 +121,8 @@ const Player = {
     this.saveMarks();
     this.detach();
     this.clip = null;
+    this.resume = null;
+    this.saveSession();
     this.markIn = this.markOut = null;
     this.queued = false;
     $("#ed-title").textContent = "";
@@ -129,6 +140,40 @@ const Player = {
     this.loadCounter();
     this.v.src = `/api/files/download?root=subclip&path=${encodeURIComponent(path)}&inline=1`;
     this.msg(null);
+    this.saveSession(false, 0);
+    this.render();
+  },
+
+  /* ---------- session (per client IP, kept by the server) ---------- */
+  saveSession(beacon = false, t = null) {
+    if (this.resume) return;   // a restore is pending: don't overwrite it with the fresh load's position
+    this.sessAt = Date.now();
+    const c = this.clip;
+    const body = JSON.stringify({ clip: c && { root: c.subclip ? "subclip" : "capture", path: c.path,
+      t: t ?? (this.v.currentTime || 0), playing: !this.v.paused, in: this.markIn, out: this.markOut } });
+    if (beacon) navigator.sendBeacon("/api/session", new Blob([body], { type: "application/json" }));
+    else fetch("/api/session", { method: "POST", headers: { "Content-Type": "application/json" }, body }).catch(() => {});
+  },
+  async restoreSession() {
+    let s;
+    try { s = await api("GET", "/api/session"); } catch (_) { return; }
+    const c = s.clip;
+    if (!c || this.clip) return;
+    this.resume = c;
+    await this.load(c.root, c.path);
+    if (!this.clip || this.clip.path !== c.path) this.resume = null;   // clip gone: nothing to resume
+  },
+  /* media ready (also after a proxy had to be built first): playhead, marks, play state */
+  resumeSession() {
+    const r = this.resume;
+    if (!r || !this.clip || this.clip.path !== r.path) return;
+    this.resume = null;
+    if (!this.clip.subclip && (r.in != null || r.out != null)) { this.markIn = r.in; this.markOut = r.out; this.saveMarks(); }
+    this.seek(r.t);
+    if (r.playing) {
+      AudioMgr.resume();
+      this.v.play().catch(() => toast("재생 위치를 복원했습니다 — 이어서 재생하려면 ▶ 를 누르세요"));
+    }
     this.render();
   },
 
@@ -338,6 +383,7 @@ const Player = {
   saveMarks() {
     if (!this.clip || this.clip.subclip) return;
     try { localStorage.setItem("ic.marks." + this.clip.path, JSON.stringify([this.markIn, this.markOut])); } catch (_) {}
+    this.saveSession();
   },
   restoreMarks() {
     this.markIn = this.markOut = null;

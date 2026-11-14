@@ -11,6 +11,7 @@ const App = {
     Splitter.init();
     Record.setDevices(await api("GET", "/api/devices"));
     this.connect();
+    Player.restoreSession();
   },
 
   connect() {

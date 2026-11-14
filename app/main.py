@@ -16,6 +16,7 @@ from .encoder import Encoder
 from .logger import setup_logging
 from .media import ROOTS, Media, MediaError
 from .recorder import Recorder
+from .session import Sessions
 from .sysmon import SysMon
 
 cfg = Config()
@@ -26,6 +27,7 @@ media = Media(cfg)
 recorder = Recorder(cfg, media)
 encoder = Encoder(cfg, media)
 sysmon = SysMon(cfg)
+sessions = Sessions()
 WEB = ROOT / "web"
 
 # subclip settings the UI may write (anything else in the section is file-only)
@@ -41,7 +43,8 @@ async def lifespan(app):
     await recorder.refresh_devices()
     log.info("decklink devices: %s", recorder.devices)
     encoder.start()
-    tasks = [asyncio.create_task(sysmon.run()), asyncio.create_task(recorder.watchdog())]
+    tasks = [asyncio.create_task(sysmon.run()), asyncio.create_task(recorder.watchdog()),
+             asyncio.create_task(sessions.run())]
     log.info("instantclip ready on port %s", cfg.section("http")["port"])
     yield
     log.info("shutting down")
@@ -271,6 +274,21 @@ async def job_cancel(job_id: int):
 @app.post("/api/jobs/clear")
 async def job_clear():
     encoder.clear_finished()
+    return {"ok": True}
+
+
+# ---------------- client session (per IP) ----------------
+@app.get("/api/session")
+async def session_get(request: Request):
+    return sessions.get(request.client.host)
+
+
+@app.post("/api/session")   # POST, so navigator.sendBeacon can save on page unload
+async def session_put(request: Request):
+    try:
+        sessions.put(request.client.host, await request.json())
+    except (ValueError, TypeError, KeyError):
+        raise HTTPException(400, "bad session")
     return {"ok": True}
 
 
