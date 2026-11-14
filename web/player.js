@@ -57,7 +57,10 @@ const Player = {
     });
 
     // editor buttons: act, then hand focus back to the player so shortcuts keep working
-    $$("#p-edit [data-act]").forEach((b) => b.addEventListener("click", () => { this.act(b.dataset.act); this.box.focus(); }));
+    $$("#p-edit [data-act]").forEach((b) => {
+      b.addEventListener("mousedown", (e) => e.preventDefault());   // keep focus on the player while pressing
+      b.addEventListener("click", () => { this.act(b.dataset.act); this.box.focus(); });
+    });
     $("#ed-vol").value = localStorage.getItem("ic.vol") || "1";
     $("#ed-vol").oninput = () => { localStorage.setItem("ic.vol", $("#ed-vol").value); this.applyVol(); };
     $("#ed-mute").onclick = () => { this.muted = !this.muted; this.applyVol(); };
@@ -345,6 +348,8 @@ const Player = {
       const r = tl.getBoundingClientRect();
       return Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * this.duration();
     };
+    // pressing the timeline must not take focus from the player (the shortcut badge would flicker)
+    tl.addEventListener("mousedown", (e) => e.preventDefault());
     tl.addEventListener("pointerdown", (e) => {
       if (!this.hasMedia()) return;
       tl.setPointerCapture(e.pointerId);
