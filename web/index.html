@@ -85,7 +85,7 @@
   </div>
 
   <!-- ============ 2. 편집제어 ============ -->
-  <section class="panel" id="p-edit">
+  <section class="panel" id="p-edit" tabindex="-1">
     <h2><span class="num">2</span>편집제어 <span id="ed-mode" class="ed-mode" hidden></span><span id="ed-title" class="clip-title"></span>
       <button id="ed-eject" class="eject-btn" title="클립 내리기 (mark 는 클립별로 기억됨)">⏏ EJECT</button></h2>
     <div class="editor">
@@ -143,8 +143,8 @@
       <button id="btn-queue" class="primary" data-act="queue" title="Enter">⏎ SUBCLIP<br><small>인코더 큐에 등록</small></button>
     </div>
     <details class="help">
-      <summary>단축키 (플레이어에 포커스가 있을 때만 동작)
-        <span id="ed-keys" class="keys-badge"><span class="on">⌨ 단축키 사용 가능</span><span class="off">⌨ 단축키 꺼짐 — 플레이어를 클릭하세요</span></span></summary>
+      <summary>단축키 (편집제어 창에 포커스가 있을 때 동작)
+        <span id="ed-keys" class="keys-badge"><span class="on">⌨ 단축키 사용 가능</span><span class="off">⌨ 단축키 꺼짐 — 편집제어 창을 클릭하세요</span></span></summary>
       <div class="keys-grid">
         <span><kbd>I</kbd> mark in</span><span><kbd>O</kbd> mark out</span><span><kbd>Enter</kbd> subclip 큐 등록</span>
         <span><kbd>Ctrl</kbd>+<kbd>I</kbd> in 으로 이동 (정지)</span><span><kbd>Ctrl</kbd>+<kbd>O</kbd> out 으로 이동 (정지)</span>

@@ -1,6 +1,6 @@
 "use strict";
 /* 2. 편집제어: proxy HLS player, timeline with thumbnails and marks, keyboard shortcuts.
- * Shortcuts listen on the #player element only, so they work only while it has focus.
+ * Shortcuts listen on the whole 편집제어 panel (#p-edit), so they work while focus is anywhere inside it.
  * Keys are matched by e.code so they also work with the Korean IME active.
  */
 // actions that edit (marks, submit); on a loaded subclip they only show a message
@@ -30,11 +30,15 @@ const Player = {
     this.meter = new StereoMeter($("#ed-meter"), true);
     Meters.views.add(this);
 
-    this.box.addEventListener("keydown", (e) => this.onKey(e));
-    // shortcut on/off badge beside the 단축키 help line follows the player's focus
+    // the panel is focusable (tabindex=-1): a click on any empty spot of it enables the shortcuts
+    this.panel = $("#p-edit");
+    this.panel.addEventListener("keydown", (e) => this.onKey(e));
+    // shortcut on/off badge beside the 단축키 help line follows focus entering/leaving the panel
     const keys = $("#ed-keys");
-    this.box.addEventListener("focus", () => keys.classList.add("active"));
-    this.box.addEventListener("blur", () => keys.classList.remove("active"));
+    this.panel.addEventListener("focusin", () => keys.classList.add("active"));
+    this.panel.addEventListener("focusout", (e) => {
+      if (!this.panel.contains(e.relatedTarget)) keys.classList.remove("active");
+    });
     this.box.addEventListener("click", () => this.box.focus());
     this.v.addEventListener("dblclick", () => this.toggle());
     this.v.addEventListener("play", () => this.syncPlayBtn());

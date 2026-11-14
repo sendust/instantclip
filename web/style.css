@@ -162,7 +162,8 @@ button.toggle.on { background: #1d4d33; border-color: var(--in); }
 .clip-title { font-weight: 400; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .editor { display: flex; gap: 8px; }
 .player { position: relative; flex: 1; aspect-ratio: 16/9; background: #000; border: 2px solid var(--line); outline: none; cursor: pointer; min-width: 0; }
-.player:focus { border-color: var(--accent); }
+#p-edit:focus { outline: none; }
+#p-edit:focus-within .player { border-color: var(--accent); }
 .player.dragover { border-color: var(--in); border-style: dashed; }
 .player video { width: 100%; height: 100%; display: block; }
 .drop-hint { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); pointer-events: none; }
@@ -174,7 +175,7 @@ button.toggle.on { background: #1d4d33; border-color: var(--in); }
 .keys-badge.active { background: #1f8f4e; box-shadow: 0 0 0 1px #3ddc84 inset; }
 .keys-badge.active .on { display: inline; }
 .keys-badge.active .off { display: none; }
-.player:not(:focus) { border-color: #6b2a2a; }
+#p-edit:not(:focus-within) .player { border-color: #6b2a2a; }
 .rec-badge { position: absolute; top: 6px; left: 6px; font-size: 11px; font-weight: 700; padding: 1px 6px; background: var(--rec); color: #fff; border-radius: 3px; }
 
 .timeline { position: relative; height: 26px; margin: 10px 0 4px; background: #0b0e12; border: 1px solid var(--line); border-radius: 3px; cursor: pointer; user-select: none; }
