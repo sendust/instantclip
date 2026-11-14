@@ -253,13 +253,13 @@ const Player = {
         this.queued = false;
         if (!this.editable()) return;
         this.markIn = this.curFrameTime();
-        if (this.markOut != null && this.markOut < this.markIn) this.markOut = null;
+        if (this.markOut != null && this.markOut <= this.markIn) this.markOut = null;
         this.saveMarks(); return this.render();
       case "mark-out":
         this.queued = false;
         if (!this.editable()) return;
-        this.markOut = this.curFrameTime();   // start of the out frame; the frame itself is included
-        if (this.markIn != null && this.markIn > this.markOut) this.markIn = null;
+        this.markOut = this.curFrameTime();   // start of the out frame; the frame itself is not included
+        if (this.markIn != null && this.markIn >= this.markOut) this.markIn = null;
         this.saveMarks(); return this.render();
       case "clear-marks":
         this.queued = false;
@@ -292,7 +292,7 @@ const Player = {
   async queue() {
     if (!this.editable()) return toast("녹화 클립을 먼저 불러오세요", true);
     if (this.markIn == null || this.markOut == null) return toast("mark in / mark out 을 모두 지정하세요", true);
-    if (this.markOut < this.markIn) return toast("mark out 이 mark in 보다 앞에 있습니다", true);
+    if (this.markOut <= this.markIn) return toast("mark out 은 mark in 보다 뒤에 있어야 합니다", true);
     // one submit per marking: a repeated Enter (or one pressed while the request is in flight)
     // is ignored until mark in/out is set again or cleared
     if (this.queueBusy) return;
@@ -300,8 +300,8 @@ const Player = {
     this.queueBusy = true;
     this.render();
     try {
-      // tout = end of the out frame, so the out frame is part of the subclip
-      const j = await api("POST", "/api/jobs", { source: this.clip.path, tin: this.markIn, tout: this.outEnd(), folder: Browser.folder("subclip") });
+      // tout = start of the out frame, so the subclip ends just before it
+      const j = await api("POST", "/api/jobs", { source: this.clip.path, tin: this.markIn, tout: this.markOut, folder: Browser.folder("subclip") });
       this.queued = true;
       toast(`인코더 큐 등록: ${j.name}`);
     } catch (e) { toast(e.message, true); }
@@ -309,7 +309,6 @@ const Player = {
     this.render();
     this.loadCounter();
   },
-  outEnd() { return this.markOut + FRAME; },
 
   /* next subclip number of the loaded source clip */
   /* another user (or tab) took or reset a number: refresh the "next" box */
@@ -406,8 +405,8 @@ const Player = {
     mi.style.display = this.markIn != null && d > 0 ? "block" : "none";
     mo.style.display = this.markOut != null && d > 0 ? "block" : "none";
     if (this.markIn != null) mi.style.left = pct(this.markIn);
-    if (this.markOut != null) mo.style.left = pct(this.outEnd());
-    const a = this.markIn ?? 0, b = this.markOut != null ? this.outEnd() : d;
+    if (this.markOut != null) mo.style.left = pct(this.markOut);
+    const a = this.markIn ?? 0, b = this.markOut ?? d;
     rg.style.display = (this.markIn != null || this.markOut != null) && d > 0 ? "block" : "none";
     rg.style.left = pct(a);
     rg.style.width = `calc(${pct(b)} - ${pct(a)})`;
@@ -418,7 +417,7 @@ const Player = {
     $("#tc-out").textContent = tc(this.markOut);
     $("#sec-in").textContent = this.markIn != null ? this.markIn.toFixed(3) + " s" : "";
     $("#sec-out").textContent = this.markOut != null ? this.markOut.toFixed(3) + " s" : "";
-    const dur = this.markIn != null && this.markOut != null ? this.outEnd() - this.markIn : null;
+    const dur = this.markIn != null && this.markOut != null ? this.markOut - this.markIn : null;
     $("#tc-dur").textContent = tc(dur);
     $("#sec-dur").textContent = dur != null ? dur.toFixed(3) + " s" : "";
     $("#btn-queue").disabled = !(this.editable() && dur > 0) || this.queued || this.queueBusy;

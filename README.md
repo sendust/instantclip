@@ -115,7 +115,7 @@ MPEG-2 는 NVENC 가 지원하지 않아 CPU 로 인코딩한다 (실측: 1080p5
 | `J` `L` | -0.5 / +0.5 초 | `,` `.` | -1 / +1 프레임 |
 
 키는 `KeyboardEvent.code` 로 판별하므로 한글 입력 상태에서도 동작한다.
-mark in / mark out 프레임 모두 subclip 에 포함된다 (duration = out − in + 1 프레임).
+mark in 프레임은 subclip 에 포함되고 mark out 프레임은 포함되지 않는다 (duration = out − in 프레임, 마지막 프레임은 out 바로 앞 프레임).
 녹화 중인 소스의 subclip 은 대기(WAITING) 중에 인코딩 슬롯을 차지하지 않는다.
 
 ## 로그
