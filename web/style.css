@@ -209,7 +209,7 @@ button.toggle.on { background: #1d4d33; border-color: var(--in); }
 .mark-box label { grid-column: 1 / 3; }
 .mark-box span { font-size: 16px; }
 .mark-box small { grid-column: 1; font: 10px var(--mono); color: var(--muted); }
-.mark-box button { grid-column: 2; grid-row: 2 / 4; font-size: 10px; padding: 2px 6px; }
+.mark-box button { grid-column: 2; grid-row: 2 / 4; font-size: 16px; padding: 4px 10px; }   /* as big as the timecode digits */
 .mark-box.in { border-left-color: var(--in); }
 .mark-box.out { border-left-color: var(--out); }
 .mark-box.dur { border-left-color: var(--warn); }
@@ -260,7 +260,7 @@ button.toggle.on { background: #1d4d33; border-color: var(--in); }
 .bar > i { display: block; height: 100%; background: var(--accent); transition: width .4s; }
 .bar.warn > i { background: var(--warn); }
 .bar.crit > i { background: var(--rec); }
-.cores { display: grid; grid-template-columns: repeat(20, 1fr); gap: 2px; height: 22px; }
+.cores { display: grid; grid-template-columns: repeat(20, 1fr); gap: 2px; height: 44px; }
 .cores i { display: block; background: #0b0e12; position: relative; }
 .cores i b { position: absolute; left: 0; right: 0; bottom: 0; background: var(--accent); }
 .sys-cpu { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; font-size: 11px; }
