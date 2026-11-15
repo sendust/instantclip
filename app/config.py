@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = Path(os.environ.get("INSTANTCLIP_CONFIG", ROOT / "config.json"))
+EXAMPLE_PATH = ROOT / "config.example.json"   # tracked template; config.json itself is local (git-ignored)
 
 # values used when a key is missing from config.json (the file itself is the reference)
 DEFAULTS = {
@@ -67,8 +68,9 @@ class Config:
     def load(self):
         with self._lock:
             raw = {}
-            if self.path.exists():
-                raw = json.loads(self.path.read_text(encoding="utf-8"))
+            src = self.path if self.path.exists() else EXAMPLE_PATH   # first run: start from the template
+            if src.exists():
+                raw = json.loads(src.read_text(encoding="utf-8"))
             self._data = _merge(DEFAULTS, raw)
             if raw != self._data:
                 self._save()

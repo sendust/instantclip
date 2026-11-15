@@ -49,6 +49,8 @@ mediamtx (RTSP :8554, WebRTC :8889 + UDP :8189 — 원격 브라우저에서 liv
 
 ## 환경설정 `config.json`
 
+`config.json` 은 이 서버의 운영 설정이라 git 으로 관리하지 않는다 (`.gitignore`). 저장소에는 견본 `config.example.json` 만 있고,
+`config.json` 이 없으면 처음 시작할 때 견본을 바탕으로 만들어진다 (견본에도 없는 키는 코드의 기본값으로 채워 넣음).
 UI 의 subclip 코덱 설정은 바꾸는 즉시 이 파일에 저장된다. 나머지는 파일을 고친 뒤 재시작.
 
 | 섹션 | 내용 |
@@ -143,7 +145,7 @@ mark in 프레임은 subclip 에 포함되고 mark out 프레임은 포함되지
 
 ```
 app/main.py       FastAPI: REST, /ws 상태 push(1초), 정적 파일, /media/proxy, /media/thumb
-app/config.py     config.json 로드/기본값/원자적 저장
+app/config.py     config.json 로드(없으면 config.example.json 에서 시작)/기본값/원자적 저장
 app/logger.py     로그 설정
 app/ffutil.py     ffmpeg 프로세스 관리(-progress 파싱, SIGINT 정상 종료), decklink 목록, ffprobe
 app/recorder.py   채널(장치)별 preview / record ffmpeg
