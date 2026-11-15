@@ -3,6 +3,10 @@
 DeckLink 로 녹화 중인(또는 녹화가 끝난) 클립을 원격 웹브라우저에서 보면서 mark in / mark out 을 찍어
 subclip 을 만드는 시스템.
 
+![녹화 중인 클립 편집 — Subclip 코덱 창을 위로 접고 시스템 상태·인코더 큐를 펼친 화면](instantclip_wwwUI.png)
+
+![같은 화면에서 Subclip 코덱 설정을 펼친 상태](instantclip_wwwUI2.png)
+
 ```
 SDI 1080i59.94 2ch ─ DeckLink ─ ffmpeg (1 process / 채널)
                                  ├─ bwdif_cuda → hires 1080p59.94 / 29.97 4:2:0 MPEG-2 35 Mbps CBR (CPU)  <record>/<이름>.ts
