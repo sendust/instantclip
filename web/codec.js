@@ -93,7 +93,21 @@ const Codec = {
     }
     this.showGain();
     this.syncVisibility();
+    this.lockFps();
     this.preview();
+  },
+
+  /* frame rate of the clip in the editor: a 29.97 recording can only give 29.97 (the encoder never
+     up-converts), so the choice is pinned there; 59.94 sources (or no clip) offer 59.94 / 29.97 */
+  setSourceFps(fps) {
+    this.srcFps = fps || 0;
+    this.lockFps();
+  },
+  lockFps() {
+    const sel = this.form.fps, locked = this.srcFps > 0 && this.srcFps < 31;
+    sel.disabled = locked;
+    sel.value = locked ? "30000/1001" : this.cfg.fps;
+    $("#fps-note").hidden = !locked;
   },
 
   syncVisibility() {

@@ -3,6 +3,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import subprocess
 from pathlib import Path
 
 import uvicorn
@@ -29,6 +30,18 @@ encoder = Encoder(cfg, media)
 sysmon = SysMon(cfg)
 sessions = Sessions()
 WEB = ROOT / "web"
+
+
+def _commit_time() -> str:
+    """Date/time of the checked-out commit, shown next to the logo ("" outside a git checkout)."""
+    try:
+        return subprocess.run(["git", "-C", str(ROOT), "log", "-1", "--format=%cd", "--date=format:%Y-%m-%d %H:%M"],
+                              capture_output=True, text=True, timeout=5).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+COMMIT_TIME = _commit_time()
 
 # subclip settings the UI may write (anything else in the section is file-only)
 SUBCLIP_KEYS = {"vcodec", "preset", "tune", "profile", "rc", "bitrate", "maxrate", "bufsize", "cq",
@@ -78,7 +91,8 @@ async def get_config():
     c = cfg.snapshot()
     return {"subclip": c["subclip"], "paths": c["paths"], "mediamtx": c["mediamtx"],
             "thumbnail": c["thumbnail"], "capture": c["capture"], "editor": c["editor"],
-            "record_proxy": {k: c["record_proxy"][k] for k in ("width", "height", "fps")}}
+            "record_proxy": {k: c["record_proxy"][k] for k in ("width", "height", "fps")},
+            "commit_time": COMMIT_TIME}
 
 
 @app.put("/api/config/subclip")
@@ -102,6 +116,7 @@ async def put_subclip(values: dict):
 class RecStart(BaseModel):
     device: str
     prefix: str = ""
+    fps: str = ""   # 60000/1001 | 30000/1001, empty: capture.fps
 
 
 class DeviceReq(BaseModel):
@@ -130,7 +145,7 @@ async def devices(refresh: bool = False):
 @app.post("/api/record/start")
 async def record_start(r: RecStart):
     try:
-        rel = await _channel(r.device).start_record(r.prefix)
+        rel = await _channel(r.device).start_record(r.prefix, r.fps)
     except RuntimeError as e:
         raise HTTPException(409, str(e))
     return {"clip": rel}

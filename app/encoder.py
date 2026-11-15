@@ -13,7 +13,7 @@ import time
 from pathlib import Path, PurePosixPath
 
 from .config import ROOT, Config
-from .ffutil import FFmpegProcess
+from .ffutil import FFmpegProcess, probe
 from .media import Media, MediaError
 
 log = logging.getLogger("encoder")
@@ -22,6 +22,15 @@ STATE_PATH = ROOT / "state.json"   # runtime state (subclip counters), not confi
 GROW_MARGIN = 3.0       # seconds of hires that must exist beyond the out point of a growing clip
 HISTORY = 100
 CONTAINER_FMT = {"mp4": "mp4", "mov": "mov", "mkv": "matroska", "ts": "mpegts"}
+
+
+def rate(r) -> float:
+    """Frame rate string ("60000/1001", "25") -> frames per second; 0 when unknown."""
+    try:
+        n, _, d = str(r).partition("/")
+        return float(n) / float(d or 1)
+    except (ValueError, ZeroDivisionError):
+        return 0.0
 
 
 class Job:
@@ -145,7 +154,7 @@ class Encoder:
         self.jobs = [j for j in self.jobs if j.state in ("queued", "waiting", "running")]
 
     # ---------- command ----------
-    def build_args(self, src: Path, out: Path, tin: float, dur: float) -> list[str]:
+    def build_args(self, src: Path, out: Path, tin: float, dur: float, src_fps: float = 0) -> list[str]:
         sc = self.cfg.section("subclip")
         ff = self.cfg.section("ffmpeg")
         codec = sc["vcodec"]
@@ -159,8 +168,10 @@ class Encoder:
         a += ["-ss", f"{tin:.4f}", "-t", f"{dur:.4f}", "-i", str(src), "-map", "0:v:0", "-map", "0:a:0?"]
 
         vf = []
-        if sc.get("fps", "source") != "source":
-            vf.append(f"fps={sc['fps']}")
+        fps = sc.get("fps", "source")
+        # never up-convert: a 29.97 recording gives a 29.97 subclip whatever the setting says
+        if fps != "source" and not (src_fps and rate(fps) > src_fps + 0.01):
+            vf.append(f"fps={fps}")
         if sc.get("resolution", "source") != "source":
             w, h = sc["resolution"].split("x")
             vf.append(f"scale_cuda={w}:{h}" if nv else f"scale={w}:{h}")
@@ -242,7 +253,9 @@ class Encoder:
         src = self.media.resolve("capture", job.source)
         out = self.media.resolve("subclip", job.out_rel)
         dur = job.tout - job.tin
-        job.proc = FFmpegProcess(f"subclip:{job.id}", self.build_args(src, out, job.tin, dur))
+        info = await probe(self.cfg.section("ffmpeg")["ffprobe"], src)
+        v = next((s for s in info.get("streams", []) if s.get("codec_type") == "video"), {})
+        job.proc = FFmpegProcess(f"subclip:{job.id}", self.build_args(src, out, job.tin, dur, rate(v.get("r_frame_rate"))))
         if job.state == "canceled":   # canceled between dispatch and start
             return
         await job.proc.start()

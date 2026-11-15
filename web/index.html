@@ -9,7 +9,7 @@
 </head>
 <body>
 <header class="topbar">
-  <div class="brand">instant<b>clip</b> <span class="by">by sendust</span></div>
+  <div class="brand">instant<b>clip</b> <span class="by">by sendust</span> <span id="commit-time" class="build" title="코드 커밋 일시"></span></div>
   <div class="top-status">
     <span id="ws-state" class="dot off" title="서버 연결"></span>
     <span id="audio-unlock" class="hint" hidden>오디오 미터를 켜려면 화면을 한 번 클릭하세요</span>
@@ -28,6 +28,8 @@
     </div>
     <div class="row">
       <input id="rec-prefix" class="grow" placeholder="클립 이름 접두어 (기본 REC)" maxlength="60">
+      <select id="rec-fps" title="녹화 프레임레이트 (1080i 입력 디인터레이스)">
+        <option value="60000/1001">1080p 59.94</option><option value="30000/1001">1080p 29.97</option></select>
     </div>
     <div class="row rec-buttons">
       <button id="rec-start" class="rec">● REC</button>
@@ -183,8 +185,8 @@
         <option value="source">원본 (1920x1080)</option><option>1920x1080</option><option>1280x720</option>
         <option>960x540</option><option>854x480</option><option>640x360</option></select></label>
       <label>프레임레이트<select name="fps">
-        <option value="source">원본 (59.94p)</option><option value="60000/1001">59.94</option>
-        <option value="30000/1001">29.97</option><option value="25">25</option><option value="24000/1001">23.976</option></select></label>
+        <option value="60000/1001">59.94</option><option value="30000/1001">29.97</option></select>
+        <small id="fps-note" class="muted" hidden>29.97 녹화 원본 — 29.97 고정</small></label>
       <label>컨테이너<select name="container"><option>mp4</option><option>mov</option><option>mkv</option><option>ts</option></select></label>
       <label class="check"><input type="checkbox" name="faststart"> faststart (moov 앞으로)</label>
       <label>동시 인코딩 수<select name="workers">

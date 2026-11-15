@@ -94,6 +94,8 @@ const Player = {
     catch (e) { return toast(e.message, true); }
     this.saveMarks();
     this.clip = info;
+    const vs = (info.hires?.streams || []).find((s) => s.codec_type === "video");
+    Codec.setSourceFps(vs ? rate(vs.r_frame_rate) : 0);
     this.restoreMarks();
     this.queued = false;
     $("#ed-title").textContent = info.path;
@@ -122,6 +124,7 @@ const Player = {
     this.detach();
     this.clip = null;
     this.resume = null;
+    Codec.setSourceFps(0);
     this.saveSession();
     this.markIn = this.markOut = null;
     this.queued = false;
@@ -135,6 +138,7 @@ const Player = {
     this.saveMarks();
     this.detach();
     this.clip = { subclip: true, path, name: path.split("/").pop() };
+    Codec.setSourceFps(0);
     this.markIn = this.markOut = null;
     $("#ed-title").textContent = path;
     this.loadCounter();

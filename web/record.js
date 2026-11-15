@@ -30,6 +30,10 @@ const Record = {
     };
     $("#rec-prefix").value = localStorage.getItem("ic.prefix") || "";
     $("#rec-prefix").onchange = (e) => localStorage.setItem("ic.prefix", e.target.value);
+    // recording frame rate: remembered per browser, config.json capture.fps until chosen
+    $("#rec-fps").value = localStorage.getItem("ic.recFps") || cfg.capture.fps || "60000/1001";
+    if (!$("#rec-fps").value) $("#rec-fps").value = "60000/1001";
+    $("#rec-fps").onchange = (e) => localStorage.setItem("ic.recFps", e.target.value);
     this.setMuted(true);
   },
 
@@ -73,7 +77,9 @@ const Record = {
     $("#remain-box").classList.toggle("crit", rec && c.remaining < 180);
     $("#rec-extend").disabled = !rec;
     const extra = rec && c.drop && c.drop !== "0" ? `  · drop ${c.drop}` : "";
-    $("#rec-clip").textContent = rec ? `${c.clip}${extra}` : "";
+    const fps = { "60000/1001": "  · 59.94p", "30000/1001": "  · 29.97p" }[c.fps] || "";
+    $("#rec-clip").textContent = rec ? `${c.clip}${fps}${extra}` : "";
+    $("#rec-fps").disabled = rec;
     $("#rec-error").hidden = !c.error;
     $("#rec-error").textContent = c.error || "";
     $("#live-input").checked = !!c.preview;
@@ -160,7 +166,7 @@ const Record = {
 
   async start() {
     try {
-      const r = await api("POST", "/api/record/start", { device: this.device, prefix: $("#rec-prefix").value.trim() });
+      const r = await api("POST", "/api/record/start", { device: this.device, prefix: $("#rec-prefix").value.trim(), fps: $("#rec-fps").value });
       toast(`녹화 시작: ${r.clip}`);
     } catch (e) { toast(e.message, true); }
   },

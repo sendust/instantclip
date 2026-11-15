@@ -22,6 +22,7 @@ DEFAULTS = {
     "mediamtx": {"rtsp_url": "rtsp://127.0.0.1:8554", "webrtc_url": "", "webrtc_port": 8889,
                  "path_prefix": "instantclip_", "api_url": "http://127.0.0.1:9997"},
     "capture": {"format_code": "Hi59", "audio_channels": 2, "deinterlace": "bwdif_cuda=mode=1",
+                "fps": "60000/1001",   # default recording rate; 60000/1001 or 30000/1001, chosen per REC in the UI
                 "name_template": "{prefix}_%Y%m%d_%H%M%S", "default_prefix": "REC",
                 "auto_stop_sec": 7200, "extend_sec": 600,
                 # device name -> /dev/blackmagic/ioN, for "in use by another process" (learned while capturing)

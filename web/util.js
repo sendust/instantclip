@@ -31,6 +31,8 @@ function toast(msg, isErr = false) {
 
 const pad = (n, w = 2) => String(n).padStart(w, "0");
 
+/* "60000/1001" / "25" -> frames per second (0 when unknown) */
+const rate = (r) => { const [n, d] = String(r || "").split("/").map(Number); return n / (d || 1) || 0; };
 /* frame index of a time; the editor parks the playhead mid-frame */
 const frameOf = (sec) => Math.floor(sec * PROXY_FPS + 1e-4);
 

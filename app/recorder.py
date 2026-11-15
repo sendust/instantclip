@@ -2,7 +2,7 @@
 
 Per device one ffmpeg at a time:
   preview  decklink -> live (640x360 h264 + opus) -> mediamtx RTSP          (WebRTC monitor)
-  record   decklink -> bwdif_cuda -> hires 1080p59.94 4:2:0 (35M)          <record>/<name>.ts
+  record   decklink -> bwdif_cuda -> hires 1080p59.94 or 29.97 4:2:0 (35M) <record>/<name>.ts
                                   -> proxy 480p29.97 (4M) HLS EVENT          <proxy>/<name>/index.m3u8
                                   -> thumbnails every N s                    <thumbnail>/<name>/
                                   -> live -> mediamtx RTSP
@@ -23,6 +23,8 @@ from .media import Media, clean_name, hls_args, video_args
 
 log = logging.getLogger("recorder")
 
+REC_FPS = ("60000/1001", "30000/1001")   # hires recording: one frame per field, or per frame
+
 
 def slug(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", s.lower()).strip("_")
@@ -36,6 +38,7 @@ class Channel:
         self.mode = "idle"            # idle | preview | recording
         self.want_preview = False
         self.rel: str | None = None   # recording clip (relative to record dir)
+        self.rec_fps = ""             # frame rate of the running recording
         self.rec_started = 0.0
         self.deadline = 0.0           # auto-stop time (epoch) of the running recording
         self.no_signal = False
@@ -57,7 +60,7 @@ class Channel:
         return {
             "device": self.device, "mode": self.mode, "preview": self.want_preview,
             "live_path": self.live_path, "clip": self.rel, "elapsed": self.elapsed(),
-            "remaining": self.remaining(), "busy": self.mgr.busy.get(self.device, ""),
+            "remaining": self.remaining(), "busy": self.mgr.busy.get(self.device, ""), "fps": self.rec_fps,
             "live_ready": self.mgr.live_ready.get(self.live_path, ""),
             "no_signal": self.no_signal, "error": self.error,
             "speed": p.progress.get("speed") if p else None,
@@ -94,13 +97,17 @@ class Channel:
               f"fps=30000/1001,scale_cuda={lv['width']}:{lv['height']}[lv]")
         return self._input_args() + ["-filter_complex", fc] + self._live_out("[lv]", "0:a:0")
 
-    def _record_args(self, hires: Path, pdir: Path, tdir: Path) -> list[str]:
+    def _record_args(self, hires: Path, pdir: Path, tdir: Path, fps: str) -> list[str]:
         cfg = self.mgr.cfg
         cap, hi, px = cfg.section("capture"), cfg.section("record_hires"), cfg.section("record_proxy")
         lv, th = cfg.section("live"), cfg.section("thumbnail")
+        deint = cap["deinterlace"]
+        if fps == "30000/1001":
+            # one frame per interlaced frame instead of one per field; any other filter: drop every other
+            deint = deint.replace("mode=1", "mode=0") if "mode=1" in deint else f"{deint},fps=30000/1001"
         # a CPU hires encoder (mpeg2video) needs the deinterlaced frames back in system memory
         hi_dl = "" if "nvenc" in hi["vcodec"] else "[hi0];[hi0]hwdownload,format=nv12,format=yuv420p"
-        fc = (f"[0:v]scale=interl=1,format=nv12,hwupload_cuda,{cap['deinterlace']},split=2[l0]{hi_dl}[hi];"
+        fc = (f"[0:v]scale=interl=1,format=nv12,hwupload_cuda,{deint},split=2[l0]{hi_dl}[hi];"
               f"[l0]fps={px['fps']},scale_cuda={px['width']}:{px['height']},split=3[lo][lv0][th0];"
               f"[lv0]scale_cuda={lv['width']}:{lv['height']}[lv];"
               f"[th0]fps=1/{th['interval']},hwdownload,format=nv12,scale={th['width']}:{th['height']}[th];"
@@ -176,13 +183,16 @@ class Channel:
             elif not on and self.mode == "preview":
                 await self._stop_proc()
 
-    async def start_record(self, prefix: str = "") -> str:
+    async def start_record(self, prefix: str = "", fps: str = "") -> str:
         async with self._lock:
             if self.mode == "recording":
                 raise RuntimeError("이미 녹화 중입니다")
             if self.mode == "idle":
                 self._check_free()
             cap = self.mgr.cfg.section("capture")
+            fps = fps or cap.get("fps") or "60000/1001"
+            if fps not in REC_FPS:
+                raise RuntimeError(f"지원하지 않는 녹화 프레임레이트: {fps}")
             prefix = clean_name(prefix or cap["default_prefix"])
             name = time.strftime(cap["name_template"].replace("{prefix}", prefix))
             ext = self.mgr.cfg.section("record_hires")["container"]
@@ -200,11 +210,12 @@ class Channel:
             if self.mode == "preview":
                 await self._stop_proc()
             self.rel = rel
+            self.rec_fps = fps
             self.rec_started = time.time()
             self.deadline = self.rec_started + float(cap["auto_stop_sec"])
-            await self._launch(self._record_args(hires, pdir, tdir), "recording")
+            await self._launch(self._record_args(hires, pdir, tdir, fps), "recording")
             media.bump()
-            log.info("[%s] recording start %s", self.device, rel)
+            log.info("[%s] recording start %s (%s fps)", self.device, rel, fps)
             return rel
 
     def extend(self, sec: float) -> float:

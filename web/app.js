@@ -3,6 +3,7 @@
 const App = {
   async init() {
     const cfg = await api("GET", "/api/config");
+    if (cfg.commit_time) $("#commit-time").textContent = `[${cfg.commit_time}]`;
     Record.init(cfg);
     Player.init(cfg);
     Codec.init(cfg.subclip);

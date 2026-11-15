@@ -5,7 +5,7 @@ subclip 을 만드는 시스템.
 
 ```
 SDI 1080i59.94 2ch ─ DeckLink ─ ffmpeg (1 process / 채널)
-                                 ├─ bwdif_cuda → hires 1080p59.94 4:2:0 MPEG-2 35 Mbps CBR (CPU)  <record>/<이름>.ts
+                                 ├─ bwdif_cuda → hires 1080p59.94 / 29.97 4:2:0 MPEG-2 35 Mbps CBR (CPU)  <record>/<이름>.ts
                                  ├─ 480p29.97 H.264 4 Mbps HLS(EVENT)                    <proxy>/<이름>/index.m3u8
                                  ├─ 썸네일 160x90, 2초 간격                               <thumbnail>/<이름>/NNNNNN.jpg
                                  └─ live 640x360 H.264 + Opus → mediamtx RTSP → WebRTC(WHEP) → 녹화제어 모니터
@@ -51,7 +51,7 @@ UI 의 subclip 코덱 설정은 바꾸는 즉시 이 파일에 저장된다. 나
 |---|---|
 | `http.port` | 웹 UI 포트 (기본 8090) |
 | `paths.record / proxy / subclip / thumbnail` | 녹화, proxy, subclip, 썸네일 경로 |
-| `capture` | DeckLink `format_code`(Hi59 = 1080i59.94), 오디오 채널, 디인터레이스 필터, 녹화 파일 이름 규칙 (`{prefix}` + strftime), 자동 종료 `auto_stop_sec`(7200 = 2시간), 연장 단위 `extend_sec`(600), `device_nodes` 장치 이름 → `/dev/blackmagic/ioN` (다른 프로세스 사용 감지용, 이 시스템이 캡처할 때마다 자동으로 고쳐짐) |
+| `capture` | DeckLink `format_code`(Hi59 = 1080i59.94), 오디오 채널, 디인터레이스 필터, 기본 녹화 프레임레이트 `fps`(60000/1001 또는 30000/1001), 녹화 파일 이름 규칙 (`{prefix}` + strftime), 자동 종료 `auto_stop_sec`(7200 = 2시간), 연장 단위 `extend_sec`(600), `device_nodes` 장치 이름 → `/dev/blackmagic/ioN` (다른 프로세스 사용 감지용, 이 시스템이 캡처할 때마다 자동으로 고쳐짐) |
 | `record_hires` | 고해상도 녹화 코덱. 기본 `mpeg2video` 35M CBR (minrate=maxrate=bitrate), GOP 30, B 2, `threads`, `extra_args`(intra_vlc, non_linear_quant, qmin/qmax). `h264_nvenc`/`libx264` 로 바꿀 수도 있음 |
 | `record_proxy` | 저해상도 녹화 코덱 (854x480, 29.97, 4M, HLS segment 길이) |
 | `live` | WebRTC 모니터용 인코딩 |
@@ -71,6 +71,8 @@ MPEG-2 는 NVENC 가 지원하지 않아 CPU 로 인코딩한다 (실측: 1080p5
 
 ## 화면
 
+왼쪽 위 로고 옆 `[YYYY-MM-DD HH:MM]` 은 서버가 시작할 때 체크아웃되어 있던 코드의 마지막 커밋 일시다.
+
 ```
 ┌ 녹화제어 ────┐┌ 편집제어 ───────────────┐┌ Subclip 코덱 ┐
 │              ││                          ││              │
@@ -79,7 +81,9 @@ MPEG-2 는 NVENC 가 지원하지 않아 CPU 로 인코딩한다 (실측: 1080p5
 └──────────────┘└──────────────────────────┘└──────────────┘
 ```
 
-1. **녹화제어** — DeckLink 선택, 접두어, REC/STOP, live 모니터(400px, WebRTC), dBFS 레벨미터.
+1. **녹화제어** — DeckLink 선택, 접두어, 녹화 프레임레이트, REC/STOP, live 모니터(400px, WebRTC), dBFS 레벨미터.
+   프레임레이트: 1080p 59.94 (필드마다 한 프레임, bwdif mode=1) 또는 1080p 29.97 (프레임마다 한 프레임, mode=0).
+   녹화마다 고르며 브라우저에 기억된다 (처음엔 `capture.fps`). 녹화 중에는 바꿀 수 없고 클립 이름 옆에 표시된다.
    REC 를 누르면 2시간 뒤 자동 종료(녹화만 걸어 두고 자리를 비우는 경우 방지). `+10분` 으로 연장하며,
    녹화 시간과 자동 종료까지 남은 시간을 같은 크기로 표시한다 (10분 미만 노랑, 3분 미만 빨강 깜빡임).
    녹화제어와 그 아래 녹화 클립 목록 사이의 가로선은 끌어서 높이를 바꿀 수 있다 (더블클릭: 기본값, 브라우저에 기억).
@@ -93,6 +97,8 @@ MPEG-2 는 NVENC 가 지원하지 않아 CPU 로 인코딩한다 (실측: 1080p5
    타임라인 hover = 썸네일, IN/OUT 구간 표시, mark 시간은 클립마다 브라우저에 기억된다.
    SUBCLIP 번호 칸에 다음 번호가 보이고 RESET 으로 [001] 부터 다시 시작한다.
 3. **Subclip 코덱** — 바꾸는 즉시 `config.json` 에 저장. 동시 인코딩 수도 여기서 설정 (진행 중인 작업에 바로 적용).
+   프레임레이트는 59.94 / 29.97. 편집제어에 29.97 녹화 원본을 올리면 29.97 로 고정된다
+   (인코더도 원본보다 높은 프레임레이트로는 변환하지 않으므로, 설정이 59.94 라도 29.97 원본의 subclip 은 29.97).
    제목 오른쪽 `»` 로 오른쪽 열(코덱 + 시스템 상태)을 가장자리의 얇은 띠로 접고, 띠를 누르면 다시 펼친다 (편집제어·브라우저가 그만큼 넓어짐, 브라우저에 기억).
    `▾` 는 설정을 제목줄만 남기고 위로 접는다 (Live 모니터처럼; 그만큼 시스템 상태가 넓어짐, 브라우저에 기억). 화면 폭 1500px 이하에서는 `▾` 만 있다.
 4. **미디어 브라우저** — 녹화 클립(REC = 녹화 중)은 녹화제어 아래, subclip 은 편집제어 아래 넓은 목록. 폴더 생성, 이름변경(F2), 삭제(Del),
