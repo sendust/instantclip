@@ -17,7 +17,7 @@ import time
 from pathlib import Path, PurePosixPath
 
 from .config import ROOT, Config
-from .ffutil import FFmpegProcess, probe
+from .ffutil import FFmpegProcess, probe, run_capture
 from .media import Media, MediaError
 
 log = logging.getLogger("encoder")
@@ -27,6 +27,7 @@ GROW_MARGIN = 3.0       # seconds of hires that must exist beyond the out point 
 HISTORY = 100
 CONTAINER_FMT = {"mp4": "mp4", "mov": "mov", "mkv": "matroska", "ts": "mpegts"}
 PREROLL = 5.0   # seconds decoded before the in point, so the input seek lands before it (GOP < PREROLL)
+FIELD_CUT = 0.3  # scene score that counts as a cut inside the in frame (see in_after_field_cut)
 
 
 def rate(r) -> float:
@@ -172,6 +173,32 @@ class Encoder:
         zero, v0 = timing
         return v0 + math.floor((zero + (k + 0.5) / r - v0) * r + 1e-6) / r
 
+    async def in_after_field_cut(self, src: Path, t0: float, src_start: float, src_fps: float) -> float:
+        """Move the in point one source frame on when a cut falls inside the in frame.
+
+        With a 59.94 source each editor (proxy) frame stands for two source frames, t0 and t0 + 1/59.94,
+        and shows the second. A cut on a field boundary falls between them: the editor shows the new shot
+        but the source frame at t0 is still the old one, which would open the subclip with a one-frame
+        flash of the previous shot. (The out side needs nothing: the subclip ends before the pair.)
+        """
+        r = rate(self.cfg.section("record_proxy")["fps"])
+        if not src_fps or src_fps < r * 1.5:
+            return t0
+        h = 1 / src_fps
+        x = max(0.0, t0 - src_start - 3)
+        rel = t0 - src_start - x
+        rc, out, _ = await run_capture([
+            self.cfg.section("ffmpeg")["ffmpeg"], "-hide_banner", "-nostdin", "-v", "error",
+            "-ss", f"{x:.4f}", "-t", f"{rel + 1:.4f}", "-i", str(src), "-map", "0:v:0",
+            "-vf", f"trim=start={rel - 1.5 * h:.6f}:end={rel + 1.5 * h:.6f},scale=320:-2,"
+                   "select='gte(scene,0)',metadata=print:file=-", "-an", "-f", "null", "-"], timeout=30)
+        scores = [float(l.split("=", 1)[1]) for l in out.splitlines() if l.startswith("lavfi.scene_score=")]
+        # frames t0 - h, t0, t0 + h: the cut is between t0 and t0 + h, not before t0
+        if rc == 0 and len(scores) == 3 and scores[2] >= FIELD_CUT > scores[1]:
+            log.info("in point on a field cut: starting one source frame later (%.4f)", t0 + h)
+            return t0 + h
+        return t0
+
     def build_args(self, src: Path, out: Path, t0: float, t1: float, src_fps: float = 0,
                    src_start: float = 0, audio: bool = True) -> list[str]:
         """Encode source pts [t0, t1): every frame from the one at t0 up to the one before t1."""
@@ -288,6 +315,7 @@ class Encoder:
         start = info.get("start_time", 0.0)
         timing = await self.media.proxy_timing(job.source)
         t0, t1 = self.source_pts(job.tin, start, timing), self.source_pts(job.tout, start, timing)
+        t0 = await self.in_after_field_cut(src, t0, start, rate(v.get("r_frame_rate")))
         job.proc = FFmpegProcess(f"subclip:{job.id}", self.build_args(
             src, out, t0, t1, rate(v.get("r_frame_rate")), start, any(s.get("codec_type") == "audio" for s in streams)))
         if job.state == "canceled":   # canceled between dispatch and start
