@@ -38,9 +38,13 @@ class Sessions:
             raise ValueError("bad clip")
         num = lambda v: round(float(v), 4) if v is not None else None
         mark = lambda v: float(v) if v is not None else None   # unrounded: marks sit on exact frame starts
+        rec = s.get("rec")   # last recording clip, for "녹화클립 로드" after previewing a subclip
+        if rec is not None and not (isinstance(rec, dict) and isinstance(rec.get("path"), str)):
+            raise ValueError("bad rec")
         self.data[ip] = {"clip": None if clip is None else {
             "root": clip["root"], "path": clip["path"], "t": num(clip.get("t")) or 0.0,
             "playing": bool(clip.get("playing")), "in": mark(clip.get("in")), "out": mark(clip.get("out"))},
+            "rec": None if rec is None else {"path": rec["path"], "t": num(rec.get("t")) or 0.0},
             "updated": time.time()}
         self.dirty = True
 

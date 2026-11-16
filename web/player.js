@@ -77,6 +77,8 @@ const Player = {
     $("#ed-mute").onclick = () => { this.muted = !this.muted; this.applyVol(); };
     $("#cnt-reset").onclick = () => { this.resetCounter(); this.box.focus(); };
     $("#ed-eject").onclick = () => this.eject();
+    $("#ed-lastrec").addEventListener("mousedown", (e) => e.preventDefault());
+    $("#ed-lastrec").onclick = () => this.loadLastRec();
     this.initTimeline();
     this.render();
   },
@@ -88,6 +90,7 @@ const Player = {
     // else Space etc. go to the file list. Not on proxy polls, which would steal focus every 2 s.
     if (!polling) this.box.focus({ preventScroll: true });
     if (this.resume && this.resume.path !== path) this.resume = null;   // another clip opened meanwhile
+    this.rememberRec();
     if (root === "subclip") return this.loadSubclip(path);
     let info;
     try { info = await api("GET", `/api/clip?path=${encodeURIComponent(path)}`); }
@@ -101,6 +104,7 @@ const Player = {
     $("#ed-title").textContent = info.path;
     this.loadCounter();
     if (!polling) this.saveSession(false, 0);
+    this.syncRecBtn();
     if (!info.proxy) {
       this.detach();
       // a poll that finds no proxy and no running job means generation failed: don't loop
@@ -120,6 +124,7 @@ const Player = {
   eject() {
     if (!this.clip) return;
     clearTimeout(this.pollTimer);
+    this.rememberRec();
     this.saveMarks();
     this.detach();
     this.clip = null;
@@ -131,6 +136,7 @@ const Player = {
     $("#ed-title").textContent = "";
     this.msg(null);
     this.loadCounter();
+    this.syncRecBtn();
     this.render();
   },
 
@@ -145,7 +151,30 @@ const Player = {
     this.v.src = `/api/files/download?root=subclip&path=${encodeURIComponent(path)}&inline=1`;
     this.msg(null);
     this.saveSession(false, 0);
+    this.syncRecBtn();
     this.render();
+  },
+
+  /* ---------- "녹화클립 로드": back to the last recording clip after previewing a subclip ---------- */
+  rec: null,   // {path, t}: the last capture clip opened and where its playhead was
+  rememberRec(t = null) {
+    const c = this.clip;
+    if (!c || c.subclip || this.resume) return;
+    this.rec = { path: c.path, t: t ?? (this.hasMedia() ? this.v.currentTime : this.rec?.path === c.path ? this.rec.t : 0) };
+  },
+  syncRecBtn() {
+    const b = $("#ed-lastrec"), r = this.rec;
+    b.hidden = !r || (this.clip && !this.clip.subclip && this.clip.path === r.path);
+    if (r) b.title = `${r.path} — ${tc(r.t)} 위치로 다시 불러오기`;
+  },
+  async loadLastRec() {
+    const r = this.rec;
+    if (!r) return;
+    await this.load("capture", r.path);
+    if (this.clip?.path !== r.path) return;   // the clip is gone
+    this.resume = { root: "capture", path: r.path, t: r.t, playing: false, in: null, out: null };
+    if (this.hasMedia()) this.resumeSession();   // metadata already there (e.g. proxy cached): no event to wait for
+    this.box.focus({ preventScroll: true });
   },
 
   /* ---------- session (per client IP, kept by the server) ---------- */
@@ -153,8 +182,9 @@ const Player = {
     if (this.resume) return;   // a restore is pending: don't overwrite it with the fresh load's position
     this.sessAt = Date.now();
     const c = this.clip;
+    this.rememberRec(t);
     const body = JSON.stringify({ clip: c && { root: c.subclip ? "subclip" : "capture", path: c.path,
-      t: t ?? (this.v.currentTime || 0), playing: !this.v.paused, in: this.markIn, out: this.markOut } });
+      t: t ?? (this.v.currentTime || 0), playing: !this.v.paused, in: this.markIn, out: this.markOut }, rec: this.rec });
     if (beacon) navigator.sendBeacon("/api/session", new Blob([body], { type: "application/json" }));
     else fetch("/api/session", { method: "POST", headers: { "Content-Type": "application/json" }, body }).catch(() => {});
   },
@@ -162,6 +192,7 @@ const Player = {
     let s;
     try { s = await api("GET", "/api/session"); } catch (_) { return; }
     const c = s.clip;
+    if (s.rec && !this.rec) { this.rec = s.rec; this.syncRecBtn(); }
     if (!c || this.clip) return;
     this.resume = c;
     await this.load(c.root, c.path);
