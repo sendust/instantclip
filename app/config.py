@@ -37,12 +37,13 @@ DEFAULTS = {
                      "gop": 30, "acodec": "aac", "abitrate": "128k", "hls_time": 2},
     "live": {"width": 640, "height": 360, "bitrate": "1500k", "gop": 30, "abitrate": "128k"},
     # arrow-key seek seconds (←/→, ↓/↑); scene detection defaults: ± seconds around the playhead, threshold 0..1
-    "editor": {"seek_lr": 10, "seek_ud": 60, "scene_range": 5, "scene_threshold": 0.3},
+    "editor": {"seek_lr": 10, "seek_ud": 60, "scene_range": 5, "scene_threshold": 0.3,
+               "live_proxy": True, "live_cache_gb": 20},
     "thumbnail": {"interval": 2, "width": 160, "height": 90, "quality": 5},
     "subclip": {
         "vcodec": "h264_nvenc", "preset": "p5", "tune": "hq", "profile": "high", "rc": "vbr",
         "bitrate": "20M", "maxrate": "25M", "bufsize": "40M", "cq": 23, "gop": 60, "bframes": 2,
-        "spatial_aq": True, "resolution": "source", "fps": "source", "container": "mp4",
+        "spatial_aq": True, "resolution": "source", "fps": "source", "deinterlace": "auto", "container": "mp4",
         "faststart": True, "acodec": "aac", "abitrate": "192k", "audio_gain": 1.0,
         "name_template": "{src}_[{n:03d}]_{start:.2f}_{end:.2f}_{dur:.2f}", "workers": 1,
     },

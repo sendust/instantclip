@@ -18,6 +18,7 @@ from pathlib import Path, PurePosixPath
 
 from .config import ROOT, Config
 from .ffutil import FFmpegProcess, probe, run_capture
+from .liveproxy import interlaced as is_interlaced
 from .media import Media, MediaError
 
 log = logging.getLogger("encoder")
@@ -37,6 +38,11 @@ def rate(r) -> float:
         return float(n) / float(d or 1)
     except (ValueError, ZeroDivisionError):
         return 0.0
+
+
+def per_field(fps: str, src_fps: float) -> bool:
+    """Interlaced source: deinterlace to one frame per field (59.94p from 1080i) unless a lower rate is set."""
+    return fps == "source" or rate(fps) > src_fps + 0.01
 
 
 class Job:
@@ -72,6 +78,7 @@ class Encoder:
         self.task: asyncio.Task | None = None
         self.counters: dict[str, int] = {}
         self.counter_rev = 0
+        self.no_bframes: dict[str, bool] = {}   # codec -> the GPU's encoder takes no B-frames
         try:
             self.counters = json.loads(STATE_PATH.read_text()).get("counters", {})
         except (OSError, ValueError):
@@ -173,6 +180,18 @@ class Encoder:
         zero, v0 = timing
         return v0 + math.floor((zero + (k + 0.5) / r - v0) * r + 1e-6) / r
 
+    async def _scores(self, src: Path, t: float, src_start: float, h: float, deint: str = "") -> list[float]:
+        """Scene scores of the three frames t - h, t, t + h (h = one frame, after deint if given)."""
+        x = max(0.0, t - src_start - 3)
+        rel = t - src_start - x
+        rc, out, _ = await run_capture([
+            self.cfg.section("ffmpeg")["ffmpeg"], "-hide_banner", "-nostdin", "-v", "error",
+            "-ss", f"{x:.4f}", "-t", f"{rel + 1:.4f}", "-i", str(src), "-map", "0:v:0",
+            "-vf", f"{deint}trim=start={rel - 1.5 * h:.6f}:end={rel + 1.5 * h:.6f},scale=320:-2,"
+                   "select='gte(scene,0)',metadata=print:file=-", "-an", "-f", "null", "-"], timeout=30)
+        scores = [float(l.split("=", 1)[1]) for l in out.splitlines() if l.startswith("lavfi.scene_score=")]
+        return scores if rc == 0 and len(scores) == 3 else []
+
     async def in_after_field_cut(self, src: Path, t0: float, src_start: float, src_fps: float) -> float:
         """Move the in point one source frame on when a cut falls inside the in frame.
 
@@ -185,24 +204,41 @@ class Encoder:
         if not src_fps or src_fps < r * 1.5:
             return t0
         h = 1 / src_fps
-        x = max(0.0, t0 - src_start - 3)
-        rel = t0 - src_start - x
-        rc, out, _ = await run_capture([
-            self.cfg.section("ffmpeg")["ffmpeg"], "-hide_banner", "-nostdin", "-v", "error",
-            "-ss", f"{x:.4f}", "-t", f"{rel + 1:.4f}", "-i", str(src), "-map", "0:v:0",
-            "-vf", f"trim=start={rel - 1.5 * h:.6f}:end={rel + 1.5 * h:.6f},scale=320:-2,"
-                   "select='gte(scene,0)',metadata=print:file=-", "-an", "-f", "null", "-"], timeout=30)
-        scores = [float(l.split("=", 1)[1]) for l in out.splitlines() if l.startswith("lavfi.scene_score=")]
+        scores = await self._scores(src, t0, src_start, h)
         # frames t0 - h, t0, t0 + h: the cut is between t0 and t0 + h, not before t0
-        if rc == 0 and len(scores) == 3 and scores[2] >= FIELD_CUT > scores[1]:
+        if scores and scores[2] >= FIELD_CUT > scores[1]:
             log.info("in point on a field cut: starting one source frame later (%.4f)", t0 + h)
             return t0 + h
         return t0
 
+    async def out_before_field_cut(self, src: Path, t1: float, src_start: float, src_fps: float) -> float:
+        """Interlaced source encoded one frame per field: drop the last field when a cut falls inside
+        the last frame.
+
+        The (live) proxy of a 1080i clip shows the first field of each frame. A cut between the two
+        fields of the last frame is not visible in the editor (that frame still shows the old shot), but
+        its second field already is the new shot and would end the subclip with a one-field flash.
+        """
+        h = 0.5 / src_fps
+        scores = await self._scores(src, t1 - h, src_start, h, "bwdif=mode=1:deint=interlaced,")
+        # fields t1 - 2h, t1 - h, t1: the cut is between the two fields of the last frame, not at t1
+        if scores and scores[1] >= FIELD_CUT > scores[2]:
+            log.info("out point on a field cut: ending one field earlier (%.4f)", t1 - h)
+            return t1 - h
+        return t1
+
     def build_args(self, src: Path, out: Path, t0: float, t1: float, src_fps: float = 0,
-                   src_start: float = 0, audio: bool = True) -> list[str]:
+                   src_start: float = 0, audio: bool = True, interlaced: bool = False) -> list[str]:
         """Encode source pts [t0, t1): every frame from the one at t0 up to the one before t1."""
         sc = self.cfg.section("subclip")
+        fps = sc.get("fps", "source")
+        deint = None
+        if interlaced and sc.get("deinterlace", "auto") != "off" and src_fps:
+            # 1080i: one frame per field (59.94p) unless 29.97 is asked for, then one per frame
+            # (keeping the first field). From here on the source counts as that progressive rate.
+            field = per_field(fps, src_fps)
+            deint = f"mode={1 if field else 0}:deint=interlaced"
+            src_fps = src_fps * 2 if field else src_fps
         ff = self.cfg.section("ffmpeg")
         codec = sc["vcodec"]
         nv = "nvenc" in codec
@@ -222,7 +258,8 @@ class Encoder:
             a += ["-map", "0:a:0"]
 
         vf = [f"trim=start={rel(t0) - half:.6f}:end={rel(t1) - half:.6f}", "setpts=PTS-STARTPTS"]
-        fps = sc.get("fps", "source")
+        if deint:   # before trim: the deinterlacer needs the neighbouring frames, the pre-roll has them
+            vf.insert(0, ("bwdif_cuda=" if nv else "bwdif=") + deint)
         # never up-convert: a 29.97 recording gives a 29.97 subclip whatever the setting says
         if fps != "source" and not (src_fps and rate(fps) > src_fps + 0.01):
             vf.append(f"fps={fps}")
@@ -259,7 +296,8 @@ class Encoder:
                 a += ["-maxrate", sc["maxrate"]]
             if sc.get("bufsize"):
                 a += ["-bufsize", sc["bufsize"]]
-        a += ["-g", str(sc.get("gop", 60)), "-bf", str(sc.get("bframes", 2))]
+        bf = 0 if self.no_bframes.get(codec) else sc.get("bframes", 2)
+        a += ["-g", str(sc.get("gop", 60)), "-bf", str(bf)]
 
         if audio:
             # audio from the first video frame's pts, so both streams start together at 0
@@ -305,6 +343,18 @@ class Encoder:
         job.finished = time.time()
         self.media.bump()
 
+    async def _check_bframes(self, codec: str):
+        """HEVC NVENC before Turing (e.g. Quadro P2200) has no B-frames and refuses to open with any:
+        found out once per codec with a 3-frame test encode, then encoded with -bf 0."""
+        if codec in self.no_bframes or "nvenc" not in codec:
+            return
+        rc, _, _ = await run_capture([self.cfg.section("ffmpeg")["ffmpeg"], "-v", "error", "-f", "lavfi", "-i",
+                                      "testsrc2=s=1280x720", "-frames:v", "3", "-c:v", codec, "-bf", "2",
+                                      "-f", "null", "-"], timeout=20)
+        self.no_bframes[codec] = rc != 0
+        if rc != 0:
+            log.info("%s takes no B-frames on this GPU: encoding with -bf 0", codec)
+
     async def _run(self, job: Job):
         src = self.media.resolve("capture", job.source)
         out = self.media.resolve("subclip", job.out_rel)
@@ -314,10 +364,16 @@ class Encoder:
         v = next((s for s in streams if s.get("codec_type") == "video"), {})
         start = info.get("start_time", 0.0)
         timing = await self.media.proxy_timing(job.source)
+        await self._check_bframes(self.cfg.section("subclip")["vcodec"])
         t0, t1 = self.source_pts(job.tin, start, timing), self.source_pts(job.tout, start, timing)
         t0 = await self.in_after_field_cut(src, t0, start, rate(v.get("r_frame_rate")))
+        sc = self.cfg.section("subclip")
+        if is_interlaced(v) and sc.get("deinterlace", "auto") != "off" and \
+                per_field(sc.get("fps", "source"), rate(v.get("r_frame_rate"))):
+            t1 = await self.out_before_field_cut(src, t1, start, rate(v.get("r_frame_rate")))
         job.proc = FFmpegProcess(f"subclip:{job.id}", self.build_args(
-            src, out, t0, t1, rate(v.get("r_frame_rate")), start, any(s.get("codec_type") == "audio" for s in streams)))
+            src, out, t0, t1, rate(v.get("r_frame_rate")), start, any(s.get("codec_type") == "audio" for s in streams),
+            is_interlaced(v)))
         if job.state == "canceled":   # canceled between dispatch and start
             return
         await job.proc.start()

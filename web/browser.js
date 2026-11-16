@@ -110,6 +110,7 @@ class FileBrowser {
       let tags = "";
       if (f.recording) tags += '<span class="tag rec">REC</span>';
       else if (this.root === "capture" && f.proxy_building) tags += '<span class="tag building">PROXY…</span>';
+      else if (this.root === "capture" && f.live) tags += '<span class="tag live" title="프록시 없음 — 재생하는 구간만 실시간 변환합니다">LIVE</span>';
       else if (this.root === "capture" && !f.has_proxy) tags += '<span class="tag noproxy" title="프록시 없음 — 플레이어로 보내면 생성합니다">NO PROXY</span>';
       rows.push(`<div class="fb-row file" draggable="true" data-path="${esc(f.path)}" title="${esc(f.name)}">
         <span class="nm">${tags}${esc(f.name)}</span><span class="d">${hms(f.duration)}</span>

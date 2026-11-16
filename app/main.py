@@ -8,7 +8,7 @@ from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -317,6 +317,27 @@ async def session_put(request: Request):
     except (ValueError, TypeError, KeyError):
         raise HTTPException(400, "bad session")
     return {"ok": True}
+
+
+# ---------------- live proxy (clips without a built proxy) ----------------
+@app.get("/media/live/{key}/index.m3u8")
+async def live_playlist(key: str):
+    text = media.live.playlist(key)
+    if text is None:
+        raise HTTPException(404)
+    return Response(text, media_type="application/vnd.apple.mpegurl")
+
+
+@app.get("/media/live/{key}/{name}")
+async def live_segment(key: str, name: str):
+    try:
+        n = int(name.removeprefix("seg_").removesuffix(".ts"))
+    except ValueError:
+        raise HTTPException(404)
+    seg = await media.live.segment(key, n)
+    if not seg:
+        raise HTTPException(404)
+    return FileResponse(seg, media_type="video/mp2t")
 
 
 # ---------------- status ----------------

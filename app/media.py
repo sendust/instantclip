@@ -12,10 +12,12 @@ import math
 import os
 import re
 import shutil
+import time
 from pathlib import Path, PurePosixPath
 
 from .config import Config
-from .ffutil import MEDIA_EXTS, FFmpegProcess, close_playlist, hls_info, probe, run_capture
+from .ffutil import MEDIA_EXTS, FFmpegProcess, close_playlist, hls_info, probe, probe_cached, run_capture
+from .liveproxy import SEG_FRAMES, LiveProxy
 
 log = logging.getLogger("media")
 
@@ -45,6 +47,8 @@ class Media:
         self.proxy_progress: dict[str, dict] = {}
         self.proxy_errors: dict[str, str] = {}   # rel -> last generation failure
         self._timing: dict[tuple, tuple[float, float]] = {}   # (first segment, mtime) -> proxy_timing
+        self.live = LiveProxy(cfg)
+        self._probing: dict[Path, float] = {}   # file -> when a listing last probed it in the background
 
     # ---------- paths ----------
     def root_dir(self, root: str) -> Path:
@@ -55,9 +59,11 @@ class Media:
         raise MediaError(f"unknown root {root}")
 
     def resolve(self, root: str, rel: str) -> Path:
+        # checked on the path as written, not on its target: a symlink placed under the root (e.g. to
+        # a tvheadend share) is browsable, while ".." can still never leave the root
         base = self.root_dir(root).resolve()
         rel = (rel or "").strip("/")
-        p = (base / rel).resolve() if rel else base
+        p = Path(os.path.normpath(base / rel)) if rel else base
         if p != base and base not in p.parents:
             raise MediaError("경로가 허용 범위를 벗어났습니다")
         return p
@@ -100,13 +106,12 @@ class Media:
         base = self.root_dir(root).resolve()
         hidden = self._hidden_dirs() if root == "capture" else set()
         recording = self.recording_rels() if root == "capture" else {}
-        folders, files = [], []
-        ffprobe = self.cfg.section("ffmpeg")["ffprobe"]
+        folders, files, later = [], [], []
         for e in sorted(os.scandir(d), key=lambda e: e.name.lower()):
             if e.name.startswith("."):
                 continue
             p = Path(e.path)
-            r = str(p.resolve().relative_to(base)) if p.resolve() != base else ""
+            r = str(p.relative_to(base))
             try:
                 st = e.stat()
             except OSError:
@@ -119,27 +124,57 @@ class Media:
             if p.suffix.lower() not in MEDIA_EXTS:
                 continue
             item = {"name": e.name, "path": r, "size": st.st_size, "mtime": st.st_mtime}
+            # a folder of hundreds of new files (e.g. a tvheadend share, ~0.1 s of ffprobe each) lists
+            # at once; the durations follow from a background probe, which bumps rev when done
+            info = probe_cached(p)
+            if info is None and r not in recording:
+                later.append(p)
             if root == "capture":
-                item.update(await self._clip_meta(r, p, recording, ffprobe))
+                item.update(self._clip_meta(r, recording, info or {}))
             else:
-                info = await probe(ffprobe, p)
-                item["duration"] = info.get("duration")
+                item["duration"] = (info or {}).get("duration")
             files.append(item)
+        if later:
+            self._probe_later(later)
         files.sort(key=lambda f: f["mtime"], reverse=True)
         return {"root": root, "path": str(d.relative_to(base)) if d != base else "",
                 "folders": folders, "files": files, "rev": self.rev}
 
-    async def _clip_meta(self, rel, p, recording, ffprobe) -> dict:
+    def _probe_later(self, paths: list[Path]):
+        # at most once a minute per file: one still being copied in changes on every listing, and each
+        # background probe ends in a bump that lists the folder again
+        now = time.monotonic()
+        self._probing = {p: t for p, t in self._probing.items() if now - t < 60}
+        paths = [p for p in paths if p not in self._probing]
+        if not paths:
+            return
+        self._probing.update(dict.fromkeys(paths, now))
+        ffprobe = self.cfg.section("ffmpeg")["ffprobe"]
+
+        async def run():
+            sem = asyncio.Semaphore(8)
+
+            async def one(p):
+                async with sem:
+                    await probe(ffprobe, p)
+            try:
+                await asyncio.gather(*(one(p) for p in paths))
+            finally:
+                self.bump()
+        asyncio.create_task(run())
+
+    def _clip_meta(self, rel, recording, info: dict) -> dict:
         m3u8 = self.proxy_dir(rel) / "index.m3u8"
         hls = hls_info(m3u8)
         meta = {"recording": rel in recording, "has_proxy": hls is not None and hls["segments"] > 0,
                 "proxy_building": rel in self.proxy_jobs}
+        meta["live"] = not (meta["has_proxy"] or meta["proxy_building"] or meta["recording"]) and self.live.enabled()
         if rel in recording:
             meta["duration"] = recording[rel]
         elif hls and hls["ended"]:
             meta["duration"] = hls["duration"]
         else:
-            meta["duration"] = (await probe(ffprobe, p)).get("duration")
+            meta["duration"] = info.get("duration")
         return meta
 
     async def clip_info(self, rel: str) -> dict:
@@ -155,6 +190,13 @@ class Media:
         except (OSError, ValueError):
             pass
         info = await probe(self.cfg.section("ffmpeg")["ffprobe"], p)
+        if not (hls and hls["segments"] > 0) and rel not in self.proxy_jobs and rel not in recording \
+                and self.live.enabled():
+            e = await self.live.entry(rel, p)
+            if e:   # no proxy: play a live one, transcoded segment by segment (no thumbnails)
+                return {"path": rel, "name": p.name, "recording": False, "duration": self.live.duration(e),
+                        "proxy": self.live.url(e["key"]), "proxy_ended": True, "proxy_building": False,
+                        "proxy_error": "", "live": True, "thumb": None, "hires": info}
         return {
             "path": rel, "name": p.name, "recording": rel in recording,
             "duration": recording.get(rel) or (hls or {}).get("duration") or info.get("duration"),
@@ -166,6 +208,13 @@ class Media:
             "hires": info,
         }
 
+    async def live_entry(self, rel: str) -> dict | None:
+        """Live proxy entry of a clip that has no built proxy (None when it has one or live is off)."""
+        if not self.live.enabled() or hls_info(self.proxy_dir(rel) / "index.m3u8"):
+            return None
+        p = self.resolve("capture", rel)
+        return await self.live.entry(rel, p) if p.is_file() else None
+
     async def proxy_timing(self, rel: str) -> tuple[float, float] | None:
         """(player zero, proxy video start) as source pts, from the first proxy segment; None without one.
 
@@ -176,7 +225,8 @@ class Media:
         try:
             key = (str(seg), seg.stat().st_mtime)
         except OSError:
-            return None
+            e = await self.live_entry(rel)
+            return await self.live.timing(e) if e else None
         if key in self._timing:
             return self._timing[key]
         rc, out, _ = await run_capture([self.cfg.section("ffmpeg")["ffprobe"], "-v", "error", "-show_entries",
@@ -215,7 +265,18 @@ class Media:
         try:
             lines = (pdir / "index.m3u8").read_text(encoding="utf-8").splitlines()
         except OSError:
-            raise MediaError("프록시가 없습니다")
+            lines = []
+        if not lines:   # live proxy: segments of 60 frames, made on demand for the range
+            e = await self.live_entry(rel)
+            if not e:
+                raise MediaError("프록시가 없습니다")
+            sf = SEG_FRAMES
+            want = range(max(0, (f0 - 1) // sf), min(self.live.segment_count(e), f1 // sf + 1))
+            paths = await asyncio.gather(*(self.live.segment(e["key"], i) for i in want))
+            if not all(paths):
+                raise MediaError("라이브 프록시 생성 실패")
+            segs = [(pp, i * sf, min(sf, e["frames"] - i * sf)) for i, pp in zip(want, paths)]
+            start = e["frames"]
         for line in lines:
             if line.startswith("#EXTINF:"):
                 dur = float(line[8:].split(",")[0])
@@ -261,7 +322,14 @@ class Media:
         if rel in self.proxy_jobs:
             raise MediaError("프록시 생성 중인 클립은 변경할 수 없습니다")
 
+    def _check_local(self, root, p: Path):
+        """Files reached through a symlink to another place (a tvheadend share...) are read-only here."""
+        base, real = self.root_dir(root).resolve(), p.resolve()
+        if real != base and base not in real.parents:
+            raise MediaError("링크로 연결된 외부 폴더는 변경할 수 없습니다")
+
     def mkdir(self, root, rel, name):
+        self._check_local(root, self.resolve(root, rel))
         d = self.resolve(root, rel) / clean_name(name)
         if d.exists():
             raise MediaError("이미 존재합니다")
@@ -284,6 +352,7 @@ class Media:
         p = self.resolve(root, rel)
         if not p.exists():
             raise MediaError("파일이 없습니다")
+        self._check_local(root, p)
         new_name = clean_name(new_name)
         if p.is_file() and not Path(new_name).suffix:
             new_name += p.suffix
@@ -302,6 +371,7 @@ class Media:
         d = self.resolve(root, dest)
         if not d.is_dir():
             raise MediaError("대상 폴더가 없습니다")
+        self._check_local(root, d)
         base = self.root_dir(root).resolve()
         todo = []
         for rel in rels:
@@ -311,6 +381,7 @@ class Media:
             p = self.resolve(root, rel)
             if not p.exists():
                 raise MediaError(f"파일이 없습니다: {rel}")
+            self._check_local(root, p)
             if p.is_dir() and (d == p or p in d.parents):
                 raise MediaError("폴더를 자기 자신 안으로 옮길 수 없습니다")
             t = d / p.name
@@ -333,6 +404,7 @@ class Media:
                 raise MediaError("루트는 삭제할 수 없습니다")
             self._check_not_recording(root, rel)
             p = self.resolve(root, rel)
+            self._check_local(root, p)
             if p.is_dir():
                 shutil.rmtree(p)
             elif p.exists():

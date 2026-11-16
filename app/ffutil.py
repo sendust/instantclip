@@ -198,10 +198,19 @@ async def probe(ffprobe: str, path: Path) -> dict:
                                 for s in j.get("streams", [])]}
         except (ValueError, TypeError):
             pass
-    if len(_probe_cache) > 5000:
+    if len(_probe_cache) > 20000:
         _probe_cache.clear()
     _probe_cache[key] = info
     return info
+
+
+def probe_cached(path: Path) -> dict | None:
+    """probe() result if already known, else None (without running ffprobe)."""
+    try:
+        st = path.stat()
+    except OSError:
+        return {}
+    return _probe_cache.get((str(path), st.st_size, int(st.st_mtime)))
 
 
 def hls_info(m3u8: Path) -> dict | None:

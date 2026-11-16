@@ -272,6 +272,7 @@ button.toggle.on { background: #1d4d33; border-color: var(--in); }
 .fb-row .tag { font-size: 9px; font-weight: 700; padding: 0 4px; border-radius: 2px; margin-right: 4px; }
 .tag.rec { background: var(--rec); color: #fff; }
 .tag.noproxy { background: #444; color: #ccc; }
+.tag.live { background: #2a4a6a; color: #cde; }
 .tag.building { background: var(--warn); color: #000; }
 .fb-empty { padding: 20px; text-align: center; color: var(--muted); }
 

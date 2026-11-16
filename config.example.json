@@ -84,7 +84,11 @@
   },
   "editor": {
     "seek_lr": 10,
-    "seek_ud": 60
+    "seek_ud": 60,
+    "scene_range": 5,
+    "scene_threshold": 0.3,
+    "live_proxy": true,
+    "live_cache_gb": 20
   },
   "thumbnail": {
     "interval": 2,
@@ -107,6 +111,7 @@
     "spatial_aq": true,
     "resolution": "source",
     "fps": "60000/1001",
+    "deinterlace": "auto",
     "container": "mp4",
     "faststart": true,
     "acodec": "aac",
