@@ -80,6 +80,7 @@ const Record = {
     const fps = { "60000/1001": "  · 59.94p", "30000/1001": "  · 29.97p" }[c.fps] || "";
     $("#rec-clip").textContent = rec ? `${c.clip}${fps}${extra}` : "";
     $("#rec-fps").disabled = rec;
+    $("#left-rec").hidden = !this.channels.some((ch) => ch.mode === "recording");   // shown on the folded strip
     $("#rec-error").hidden = !c.error;
     $("#rec-error").textContent = c.error || "";
     $("#live-input").checked = !!c.preview;

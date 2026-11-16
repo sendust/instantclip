@@ -79,6 +79,19 @@ kbd { font: 10px var(--mono); background: #0f1318; border: 1px solid var(--line)
   .layout { grid-template-columns: 430px 1fr; grid-template-areas: "left edit" "left browser" "right right"; grid-template-rows: auto 1fr auto; }
   #right-col { position: static; height: auto; display: grid; grid-template-columns: 1fr 1fr; align-items: start; }
 }
+/* « folds the whole left column (녹화제어 + 녹화 클립) to a strip; not in the 1-column layout */
+#left-fold, .strip-only, .strip-rec { display: none; }
+@media (min-width: 1051px) {
+  #left-fold { display: inline-block; }
+  .layout.left-folded #left-col > :not(#p-record) { display: none; }
+  .layout.left-folded #p-record > :not(h2) { display: none; }
+  .layout.left-folded #p-record { flex: 1 1 auto !important; padding: 8px 4px; cursor: pointer; }
+  .layout.left-folded #p-record h2 { margin: 0; writing-mode: vertical-rl; white-space: nowrap; }
+  .layout.left-folded #p-record .fold-btn { order: -1; margin: 0 0 6px; padding: 0 5px; writing-mode: horizontal-tb; }
+  .layout.left-folded .strip-only { display: inline; }
+  .layout.left-folded .strip-rec:not([hidden]) { display: inline; margin-top: 8px; color: var(--rec); font-size: 12px; font-weight: 700; }
+  .layout.left-folded { grid-template-columns: 34px 1fr; }
+}
 @media (max-width: 1050px) {
   .layout { grid-template-columns: 1fr; grid-template-areas: "left" "edit" "browser" "right"; }
   #left-col { position: static; height: auto; }
@@ -112,6 +125,8 @@ kbd { font: 10px var(--mono); background: #0f1318; border: 1px solid var(--line)
   .layout.codec-folded #codec-saved { display: none; }
   .layout.codec-folded #p-system { display: none; }   /* the whole right column folds to the strip */
   .layout.codec-folded #p-codec { flex: 1 1 auto; }
+  .layout.left-folded { grid-template-columns: 34px minmax(560px, 1fr) 330px; }
+  .layout.left-folded.codec-folded { grid-template-columns: 34px minmax(560px, 1fr) 34px; }
 }
 
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px; min-width: 0; }

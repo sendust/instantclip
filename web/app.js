@@ -11,6 +11,7 @@ const App = {
     Browser.init();
     System.init();
     Splitter.init();
+    LeftFold.init();
     Record.setDevices(await api("GET", "/api/devices"));
     this.connect();
     Player.restoreSession();
@@ -34,6 +35,30 @@ const App = {
   },
 };
 App.init().catch((e) => toast("초기화 실패: " + e.message, true));
+
+/* « folds the left column (녹화제어 + 녹화 클립) to a strip at the left edge; a click on the strip unfolds it.
+   Remembered per browser; the 1-column layout has no strip. Recording goes on while folded (● REC on the strip). */
+const LeftFold = {
+  init() {
+    const layout = $(".layout"), btn = $("#left-fold"), wide = matchMedia("(min-width: 1051px)");
+    let folded = false;
+    try { folded = localStorage.getItem("ic.leftFolded") === "1"; } catch (_) {}
+    const apply = () => {
+      layout.classList.toggle("left-folded", folded && wide.matches);
+      btn.textContent = folded ? "»" : "«";
+      btn.title = folded ? "펼치기" : "왼쪽으로 접기 (녹화 클립 포함)";
+    };
+    const set = (v) => {
+      folded = v;
+      try { localStorage.setItem("ic.leftFolded", v ? "1" : "0"); } catch (_) {}
+      apply();
+    };
+    btn.onclick = (e) => { e.stopPropagation(); set(!folded); };
+    $("#p-record").addEventListener("click", () => { if (folded && wide.matches) set(false); });
+    wide.addEventListener("change", apply);
+    apply();
+  },
+};
 
 /* divider between 녹화제어 and 시스템 상태: drag sets the 녹화제어 height (remembered per browser) */
 const Splitter = {
