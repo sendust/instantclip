@@ -1,12 +1,16 @@
 """Subclip encoder queue: cut [in, out) of the hires clip with the subclip codec settings.
 
-Marks come from the proxy timeline; proxy and hires are produced by the same ffmpeg from the
-same filter graph, so both start at 0 and input seek (-ss before -i) is frame accurate.
+Marks are editor frames on the proxy timeline. Proxy frames carry the pts of the hires frames they show
+(same filter graph while recording, same input when built later), so a mark is turned into the source pts
+of the frame the editor showed there. The cut itself is done on those timestamps with trim/atrim after an
+early input seek: an input -ss lands on the next decodable picture (up to a GOP after the seek point) and
+an input -t counts from there, which shifted whole subclips by up to ~0.5 s.
 """
 import asyncio
 import itertools
 import json
 import logging
+import math
 import os
 import re
 import time
@@ -22,6 +26,7 @@ STATE_PATH = ROOT / "state.json"   # runtime state (subclip counters), not confi
 GROW_MARGIN = 3.0       # seconds of hires that must exist beyond the out point of a growing clip
 HISTORY = 100
 CONTAINER_FMT = {"mp4": "mp4", "mov": "mov", "mkv": "matroska", "ts": "mpegts"}
+PREROLL = 5.0   # seconds decoded before the in point, so the input seek lands before it (GOP < PREROLL)
 
 
 def rate(r) -> float:
@@ -154,7 +159,22 @@ class Encoder:
         self.jobs = [j for j in self.jobs if j.state in ("queued", "waiting", "running")]
 
     # ---------- command ----------
-    def build_args(self, src: Path, out: Path, tin: float, dur: float, src_fps: float = 0) -> list[str]:
+    def source_pts(self, t: float, src_start: float, timing: tuple[float, float] | None) -> float:
+        """Editor time of a frame start (k / proxy fps) -> pts of the source frame the editor shows there.
+
+        The editor shows frame k by seeking the player to (k + 0.5) frames; the player clock starts at
+        timing[0], proxy frames sit at timing[1] + j frames, and the last one not after that point is shown.
+        """
+        r = rate(self.cfg.section("record_proxy")["fps"])
+        k = round(t * r)
+        if not timing:
+            return src_start + k / r
+        zero, v0 = timing
+        return v0 + math.floor((zero + (k + 0.5) / r - v0) * r + 1e-6) / r
+
+    def build_args(self, src: Path, out: Path, t0: float, t1: float, src_fps: float = 0,
+                   src_start: float = 0, audio: bool = True) -> list[str]:
+        """Encode source pts [t0, t1): every frame from the one at t0 up to the one before t1."""
         sc = self.cfg.section("subclip")
         ff = self.cfg.section("ffmpeg")
         codec = sc["vcodec"]
@@ -163,11 +183,18 @@ class Encoder:
              "-loglevel", "level+info", "-y"]
         if nv:
             a += ["-hwaccel", "cuda", "-hwaccel_output_format", "cuda"]
-        # -t as an input option: the cut happens before fps/scale filters, so even a 1-2 frame
-        # subclip keeps its video (an output -t with an fps filter could drop every frame)
-        a += ["-ss", f"{tin:.4f}", "-t", f"{dur:.4f}", "-i", str(src), "-map", "0:v:0", "-map", "0:a:0?"]
+        # seek early, then cut exactly on timestamps. After an input seek to x, timestamps start at
+        # x (+ the file's start time) = 0. The video bounds sit half a source frame early so the frames
+        # at t0 / t1 are on the right side of them; trim comes before fps/scale, so even a 1-2 frame
+        # subclip keeps its video. The input -t only bounds reading (it counts from the first decoded frame).
+        x = max(0.0, t0 - src_start - PREROLL)
+        rel = lambda p: p - src_start - x
+        half = 0.5 / (src_fps or rate(self.cfg.section("record_proxy")["fps"]))
+        a += ["-ss", f"{x:.4f}", "-t", f"{rel(t1) + 1:.4f}", "-i", str(src), "-map", "0:v:0"]
+        if audio:
+            a += ["-map", "0:a:0"]
 
-        vf = []
+        vf = [f"trim=start={rel(t0) - half:.6f}:end={rel(t1) - half:.6f}", "setpts=PTS-STARTPTS"]
         fps = sc.get("fps", "source")
         # never up-convert: a 29.97 recording gives a 29.97 subclip whatever the setting says
         if fps != "source" and not (src_fps and rate(fps) > src_fps + 0.01):
@@ -175,8 +202,7 @@ class Encoder:
         if sc.get("resolution", "source") != "source":
             w, h = sc["resolution"].split("x")
             vf.append(f"scale_cuda={w}:{h}" if nv else f"scale={w}:{h}")
-        if vf:
-            a += ["-vf", ",".join(vf)]
+        a += ["-vf", ",".join(vf)]
 
         a += ["-c:v", codec, "-preset", str(sc["preset"])]
         if sc.get("profile") and codec != "hevc_nvenc":
@@ -208,12 +234,15 @@ class Encoder:
                 a += ["-bufsize", sc["bufsize"]]
         a += ["-g", str(sc.get("gop", 60)), "-bf", str(sc.get("bframes", 2))]
 
-        gain = float(sc.get("audio_gain", 1.0))
-        if abs(gain - 1.0) > 1e-6:
-            a += ["-af", f"volume={gain:.4f}"]
-        a += ["-c:a", sc["acodec"]]
-        if sc["acodec"] not in ("pcm_s16le", "pcm_s24le"):
-            a += ["-b:a", sc["abitrate"]]
+        if audio:
+            # audio from the first video frame's pts, so both streams start together at 0
+            af = [f"atrim=start={rel(t0):.6f}:end={rel(t1):.6f}", "asetpts=PTS-STARTPTS"]
+            gain = float(sc.get("audio_gain", 1.0))
+            if abs(gain - 1.0) > 1e-6:
+                af.append(f"volume={gain:.4f}")
+            a += ["-af", ",".join(af), "-c:a", sc["acodec"]]
+            if sc["acodec"] not in ("pcm_s16le", "pcm_s24le"):
+                a += ["-b:a", sc["abitrate"]]
         fmt = CONTAINER_FMT.get(sc["container"], "mp4")
         if fmt in ("mp4", "mov") and sc.get("faststart"):
             a += ["-movflags", "+faststart"]
@@ -254,8 +283,13 @@ class Encoder:
         out = self.media.resolve("subclip", job.out_rel)
         dur = job.tout - job.tin
         info = await probe(self.cfg.section("ffmpeg")["ffprobe"], src)
-        v = next((s for s in info.get("streams", []) if s.get("codec_type") == "video"), {})
-        job.proc = FFmpegProcess(f"subclip:{job.id}", self.build_args(src, out, job.tin, dur, rate(v.get("r_frame_rate"))))
+        streams = info.get("streams", [])
+        v = next((s for s in streams if s.get("codec_type") == "video"), {})
+        start = info.get("start_time", 0.0)
+        timing = await self.media.proxy_timing(job.source)
+        t0, t1 = self.source_pts(job.tin, start, timing), self.source_pts(job.tout, start, timing)
+        job.proc = FFmpegProcess(f"subclip:{job.id}", self.build_args(
+            src, out, t0, t1, rate(v.get("r_frame_rate")), start, any(s.get("codec_type") == "audio" for s in streams)))
         if job.state == "canceled":   # canceled between dispatch and start
             return
         await job.proc.start()

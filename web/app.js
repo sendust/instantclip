@@ -6,6 +6,7 @@ const App = {
     if (cfg.commit_time) $("#commit-time").textContent = `[${cfg.commit_time}]`;
     Record.init(cfg);
     Player.init(cfg);
+    Scenes.init(cfg);
     Codec.init(cfg.subclip);
     Browser.init();
     System.init();

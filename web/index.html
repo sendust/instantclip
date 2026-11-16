@@ -113,6 +113,19 @@
       </div>
     </div>
 
+    <div class="scene-bar">
+      <button id="sc-run" title="playhead 앞뒤 구간에서 장면 전환(컷)을 찾습니다">✂ SCENE 검출</button>
+      <label>범위 ±<input id="sc-range" type="number" min="1" max="30" step="1">초</label>
+      <label>threshold <input id="sc-th" type="number" min="0.05" max="1" step="0.05"></label>
+      <span id="sc-info" class="mono"></span>
+    </div>
+    <div id="scenes" class="scenes" hidden>
+      <canvas id="sc-canvas" title="클릭: 그 프레임으로 이동 (컷 근처면 컷의 첫 프레임) — I = 새 장면 시작, O = 이전 장면의 끝"></canvas>
+      <div id="sc-head" class="sc-head"></div>
+      <div id="sc-hover" class="sc-hover mono" hidden></div>
+      <button id="sc-close" class="sc-close" title="닫기">✕</button>
+    </div>
+
     <div class="transport">
       <div class="tc-block"><label>POSITION</label><span id="tc-pos" class="mono">00:00:00:00</span></div>
       <div class="tc-block"><label>DURATION</label><span id="tc-total" class="mono">00:00:00:00</span></div>
@@ -246,6 +259,7 @@
 <script src="/static/meter.js"></script>
 <script src="/static/record.js"></script>
 <script src="/static/player.js"></script>
+<script src="/static/scenes.js"></script>
 <script src="/static/codec.js"></script>
 <script src="/static/browser.js"></script>
 <script src="/static/system.js"></script>

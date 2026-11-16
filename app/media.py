@@ -5,15 +5,17 @@ Layout for a hires clip  <record>/<dir>/<name>.<ext>   (rel = "<dir>/<name>.<ext
     thumbnails           <thumbnail>/<dir>/<name>/NNNNNN.jpg (+ meta.json)
 """
 import asyncio
+import contextlib
 import json
 import logging
+import math
 import os
 import re
 import shutil
 from pathlib import Path, PurePosixPath
 
 from .config import Config
-from .ffutil import MEDIA_EXTS, FFmpegProcess, close_playlist, hls_info, probe
+from .ffutil import MEDIA_EXTS, FFmpegProcess, close_playlist, hls_info, probe, run_capture
 
 log = logging.getLogger("media")
 
@@ -42,6 +44,7 @@ class Media:
         self.proxy_jobs: dict[str, FFmpegProcess] = {}
         self.proxy_progress: dict[str, dict] = {}
         self.proxy_errors: dict[str, str] = {}   # rel -> last generation failure
+        self._timing: dict[tuple, tuple[float, float]] = {}   # (first segment, mtime) -> proxy_timing
 
     # ---------- paths ----------
     def root_dir(self, root: str) -> Path:
@@ -162,6 +165,86 @@ class Media:
             "thumb": {"base": self.thumb_url(rel), "interval": meta["interval"]},
             "hires": info,
         }
+
+    async def proxy_timing(self, rel: str) -> tuple[float, float] | None:
+        """(player zero, proxy video start) as source pts, from the first proxy segment; None without one.
+
+        The player's clock starts at the earliest stream of the proxy (audio, ~0.02 s before the video),
+        and proxy frames carry the pts of the source frames they show (same filter graph / same input).
+        """
+        seg = self.proxy_dir(rel) / "seg_000000.ts"
+        try:
+            key = (str(seg), seg.stat().st_mtime)
+        except OSError:
+            return None
+        if key in self._timing:
+            return self._timing[key]
+        rc, out, _ = await run_capture([self.cfg.section("ffmpeg")["ffprobe"], "-v", "error", "-show_entries",
+                                        "stream=codec_type,start_time", "-of", "csv=p=0", str(seg)], timeout=10)
+        starts = {}
+        for line in out.splitlines():
+            kind, _, st = line.partition(",")
+            with contextlib.suppress(ValueError):
+                starts.setdefault(kind, float(st))
+        if "video" not in starts:
+            return None
+        self._timing[key] = (min(starts.values()), starts["video"])
+        return self._timing[key]
+
+    async def scenes(self, rel: str, t: float, before: float, after: float) -> dict:
+        """Scene-change score of every editor frame in [t - before, t + after].
+
+        Read from the proxy, because that is exactly what the editor shows: editor frame k is the k-th
+        frame of the proxy HLS, found by counting frames through the segment durations. (Decimating the
+        59.94 hires to 29.97 after a seek can pick the other field-frame of a pair and land a cut one
+        frame off.) Score of a frame = how different it is from the one before (ffmpeg "scene", 0..1):
+        a cut shows as one high frame, the first of the new shot.
+        """
+        p = self.resolve("capture", rel)
+        if not p.is_file():
+            raise MediaError("파일이 없습니다")
+        rel = str(p.relative_to(self.root_dir("capture").resolve()))
+        fps = self.cfg.section("record_proxy")["fps"]
+        n, _, d = str(fps).partition("/")
+        rate = float(n) / float(d or 1)
+        before, after = max(0.5, min(30.0, before)), max(0.5, min(30.0, after))
+        f0 = max(1, round((t - before) * rate))   # frame 0 has no predecessor, so no score
+        f1 = round((t + after) * rate)
+        pdir = self.proxy_dir(rel)
+        segs, start, dur = [], 0, None   # (file, first frame, frames)
+        try:
+            lines = (pdir / "index.m3u8").read_text(encoding="utf-8").splitlines()
+        except OSError:
+            raise MediaError("프록시가 없습니다")
+        for line in lines:
+            if line.startswith("#EXTINF:"):
+                dur = float(line[8:].split(",")[0])
+            elif line and not line.startswith("#") and dur is not None:
+                k = round(dur * rate)
+                segs.append((pdir / line, start, k))
+                start, dur = start + k, None
+        # the segments holding f0 - 1 .. f1 (one frame before the range, to score its first frame)
+        use = [sg for sg in segs if sg[1] + sg[2] > f0 - 1 and sg[1] <= f1]
+        if not use:
+            raise MediaError("그 구간의 프록시가 아직 없습니다")
+        # editor frame k shows the proxy frame at (k + 0.5) / rate on the player clock, so proxy frame p
+        # first shows at editor frame ceil(p + offset - 0.5), offset = video start on that clock in frames
+        tm = await self.proxy_timing(rel)
+        shift = max(0, math.ceil((tm[1] - tm[0]) * rate - 0.5 - 1e-6)) if tm else 0
+        first = use[0][1] + shift
+        args = [self.cfg.section("ffmpeg")["ffmpeg"], "-hide_banner", "-nostdin", "-v", "error",
+                "-i", "concat:" + "|".join(str(sg[0]) for sg in use), "-map", "0:v:0",
+                "-vf", "scale=320:-2,select='gte(scene,0)',metadata=print:file=-", "-an", "-f", "null", "-"]
+        rc, out, err = await run_capture(args, timeout=60)
+        if rc != 0:
+            raise MediaError(f"scene 검출 실패: {err.strip()[-200:]}")
+        frames, k = [], None
+        for line in out.splitlines():
+            if line.startswith("frame:"):
+                k = first + int(line.split()[0][6:])   # n-th decoded frame of the first used segment
+            elif line.startswith("lavfi.scene_score=") and k is not None and f0 <= k <= f1:
+                frames.append([k, round(float(line.split("=", 1)[1]), 4)])
+        return {"fps": fps, "from": f0, "to": min(f1, start - 1), "frames": frames}
 
     # ---------- operations ----------
     def _check_not_recording(self, root, rel):

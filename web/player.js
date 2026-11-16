@@ -319,6 +319,7 @@ const Player = {
 
   onKey(e) {
     if (e.altKey || e.metaKey) return;
+    if (e.target.matches("input:not([type=range]), select, textarea")) return;   // typing a value (scene range etc)
     const ctrl = e.ctrlKey;
     const map = {
       KeyI: ctrl ? "in-jump" : "mark-in",
@@ -482,5 +483,7 @@ const Player = {
       mode.className = "ed-mode " + (sub ? "preview" : "edit");
       mode.textContent = sub ? "▶ 프리뷰 전용 — 편집 불가 (SUBCLIP)" : "✎ 편집 가능 — 녹화 원본";
     }
+    $("#sc-run").disabled = !this.editable() || Scenes.busy;
+    Scenes.render();
   },
 };

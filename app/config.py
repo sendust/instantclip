@@ -36,7 +36,8 @@ DEFAULTS = {
                      "preset": "p4", "rc": "cbr", "bitrate": "4M", "maxrate": "4M", "bufsize": "8M",
                      "gop": 30, "acodec": "aac", "abitrate": "128k", "hls_time": 2},
     "live": {"width": 640, "height": 360, "bitrate": "1500k", "gop": 30, "abitrate": "128k"},
-    "editor": {"seek_lr": 10, "seek_ud": 60},   # arrow-key seek seconds: ←/→ and ↓/↑
+    # arrow-key seek seconds (←/→, ↓/↑); scene detection defaults: ± seconds around the playhead, threshold 0..1
+    "editor": {"seek_lr": 10, "seek_ud": 60, "scene_range": 5, "scene_threshold": 0.3},
     "thumbnail": {"interval": 2, "width": 160, "height": 90, "quality": 5},
     "subclip": {
         "vcodec": "h264_nvenc", "preset": "p5", "tune": "hq", "profile": "high", "rc": "vbr",

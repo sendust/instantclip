@@ -250,6 +250,18 @@ class ClipReq(BaseModel):
     path: str
 
 
+class ScenesReq(BaseModel):
+    path: str
+    t: float
+    before: float = 5
+    after: float = 5
+
+
+@app.post("/api/clip/scenes")
+async def clip_scenes(r: ScenesReq):
+    return await media.scenes(r.path, r.t, r.before, r.after)
+
+
 @app.post("/api/clip/proxy")
 async def clip_proxy(r: ClipReq):
     await media.make_proxy(r.path)

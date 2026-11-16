@@ -18,7 +18,10 @@ SDI 1080i59.94 2ch ─ DeckLink ─ ffmpeg (1 process / 채널)
 ```
 
 - 편집은 저해상도 proxy 로, subclip 은 고해상도 hires 로 만든다. 두 파일은 같은 ffmpeg 의 같은 필터
-  그래프에서 나오므로 시간축이 일치한다 (`-ss` 입력 seek + 재인코딩 = 프레임 정확).
+  그래프에서 나오므로 같은 장면에 같은 timestamp 가 붙는다. 인코더는 mark 를 편집기가 그 자리에서 보여 준
+  프레임의 timestamp 로 바꾸고, 5초 앞에서 입력 seek 한 뒤 `trim`/`atrim` 으로 그 timestamp 에서 정확히 자른다
+  (in 프레임부터 out 바로 앞 프레임까지 = 편집기에서 본 그대로, 오디오·비디오 모두 0 에서 시작).
+  입력 `-ss`/`-t` 만으로 자르면 seek 지점 다음의 디코딩 가능한 프레임(최대 GOP 하나, 0.5초)부터 시작해 subclip 전체가 밀린다.
 - 녹화 중인 클립도 proxy 가 HLS EVENT playlist 라서 바로 불러와 편집할 수 있고, 길이는 자동으로 늘어난다.
   녹화 중인 소스의 subclip 은 out 지점이 hires 에 기록될 때까지 `WAITING` 으로 기다렸다가 인코딩한다.
 - 이 시스템으로 녹화하지 않은 파일(외부에서 복사한 mp4/mov/mxf 등)은 플레이어로 보내면 proxy 와 썸네일을 자동 생성한다.
@@ -61,7 +64,7 @@ UI 의 subclip 코덱 설정은 바꾸는 즉시 이 파일에 저장된다. 나
 | `record_hires` | 고해상도 녹화 코덱. 기본 `mpeg2video` 35M CBR (minrate=maxrate=bitrate), GOP 30, B 2, `threads`, `extra_args`(intra_vlc, non_linear_quant, qmin/qmax). `h264_nvenc`/`libx264` 로 바꿀 수도 있음 |
 | `record_proxy` | 저해상도 녹화 코덱 (854x480, 29.97, 4M, HLS segment 길이) |
 | `live` | WebRTC 모니터용 인코딩 |
-| `editor` | 화살표 키 seek 시간(초): `seek_lr` ←/→ (기본 10), `seek_ud` ↓/↑ (기본 60). 버튼 표시도 이 값을 따름 |
+| `editor` | 화살표 키 seek 시간(초): `seek_lr` ←/→ (기본 10), `seek_ud` ↓/↑ (기본 60). 버튼 표시도 이 값을 따름. scene 검출 기본값 `scene_range` (±초, 5), `scene_threshold` (0.3) |
 | `thumbnail` | 썸네일 간격/크기 |
 | `subclip` | subclip 코덱 (h264_nvenc / hevc_nvenc / libx264, preset, rc, bitrate, GOP, faststart, 오디오, gain), `name_template`, 동시 인코딩 수 `workers`(UI 에서 변경, 즉시 적용) |
 | `mediamtx` | RTSP 주소, WebRTC 주소/포트 (`webrtc_url` 이 비어 있으면 `브라우저 host:webrtc_port`) |
@@ -129,6 +132,18 @@ MPEG-2 는 NVENC 가 지원하지 않아 CPU 로 인코딩한다 (실측: 1080p5
 키는 `KeyboardEvent.code` 로 판별하므로 한글 입력 상태에서도 동작한다.
 mark in 프레임은 subclip 에 포함되고 mark out 프레임은 포함되지 않는다 (duration = out − in 프레임, 마지막 프레임은 out 바로 앞 프레임).
 녹화 중인 소스의 subclip 은 대기(WAITING) 중에 인코딩 슬롯을 차지하지 않는다.
+
+### Scene change 검출
+
+타임라인 아래 `✂ SCENE 검출` 을 누르면 playhead 앞뒤 `범위 ±N초`(기본 5) 안의 장면 전환(컷)을 찾아,
+그 구간만 확대한 띠에 프레임마다의 변화량(막대)과 threshold(점선), 컷(파란 세로선), mark in/out, playhead 를 그린다.
+- 컷 = threshold(기본 0.3, 0~1) 이상인 프레임 = **새 장면의 첫 프레임**. threshold 는 바꾸는 즉시 다시 그린다 (재검출 없음).
+- 띠를 클릭하면 그 프레임으로 이동하고 정지한다 (컷 근처를 누르면 컷에 맞춰짐). 그 자리에서
+  `I` = 새 장면부터 subclip 시작, `O` = 이전 장면의 마지막 프레임까지 (out 프레임은 포함되지 않으므로).
+- 버튼을 눌렀을 때만 서버가 계산한다 (proxy 를 ffmpeg `scene` 점수로 분석, 10초 구간 약 0.5초).
+  편집기가 보여 주는 proxy 자체를 프레임 단위로 세어 분석하므로 표시되는 프레임 번호가 편집기와 정확히 일치한다.
+- 범위·threshold 는 브라우저에 기억되고, 처음 값은 `config.json` `editor.scene_range` / `editor.scene_threshold`.
+- 입력 칸에 숫자를 칠 때는 단축키가 동작하지 않는다.
 
 ### 세션 복원 (클라이언트 IP 별)
 
