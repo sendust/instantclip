@@ -1,41 +1,48 @@
 # instantclip
 
-DeckLink 로 녹화 중인(또는 녹화가 끝난) 클립을 원격 웹브라우저에서 보면서 mark in / mark out 을 찍어
-subclip 을 만드는 시스템.
+**English** | [한국어](README.ko.md)
 
-![녹화 중인 클립 편집 — Subclip 코덱 창을 위로 접고 시스템 상태·인코더 큐를 펼친 화면](instantclip_wwwUI.png)
+A system for cutting subclips from clips that are being recorded (or already recorded) from DeckLink: watch them in a
+remote web browser, set mark in / mark out, and get a frame-accurate subclip.
 
-![같은 화면에서 Subclip 코덱 설정을 펼친 상태](instantclip_wwwUI2.png)
+![Editing a clip while it records — Subclip codec panel folded up, system status and encoder queue expanded](instantclip_wwwUI.png)
+
+![The same screen with the Subclip codec settings expanded](instantclip_wwwUI2.png)
 
 ```
-SDI 1080i59.94 2ch ─ DeckLink ─ ffmpeg (1 process / 채널)
-                                 ├─ bwdif_cuda → hires 1080p59.94 / 29.97 4:2:0 MPEG-2 35 Mbps CBR (CPU)  <record>/<이름>.ts
-                                 ├─ 480p29.97 H.264 4 Mbps HLS(EVENT)                    <proxy>/<이름>/index.m3u8
-                                 ├─ 썸네일 160x90, 2초 간격                               <thumbnail>/<이름>/NNNNNN.jpg
-                                 └─ live 640x360 H.264 + Opus → mediamtx RTSP → WebRTC(WHEP) → 녹화제어 모니터
-브라우저 편집기 ─ proxy HLS(hls.js) 재생 → mark in/out → Enter
-                                         → 인코더 큐 → hires 에서 frame-accurate 재인코딩 → <subclip>/
+SDI 1080i59.94 2ch ─ DeckLink ─ ffmpeg (1 process / channel)
+                                 ├─ bwdif_cuda → hires 1080p59.94 / 29.97 4:2:0 MPEG-2 35 Mbps CBR (CPU)  <record>/<name>.ts
+                                 ├─ 480p29.97 H.264 4 Mbps HLS(EVENT)                    <proxy>/<name>/index.m3u8
+                                 ├─ thumbnails 160x90, every 2 s                          <thumbnail>/<name>/NNNNNN.jpg
+                                 └─ live 640x360 H.264 + Opus → mediamtx RTSP → WebRTC(WHEP) → recording-control monitor
+Browser editor ─ proxy HLS (hls.js) playback → mark in/out → Enter
+                                         → encoder queue → frame-accurate re-encode from hires → <subclip>/
 ```
 
-- 편집은 저해상도 proxy 로, subclip 은 고해상도 hires 로 만든다. 두 파일은 같은 ffmpeg 의 같은 필터
-  그래프에서 나오므로 같은 장면에 같은 timestamp 가 붙는다. 인코더는 mark 를 편집기가 그 자리에서 보여 준
-  프레임의 timestamp 로 바꾸고, 5초 앞에서 입력 seek 한 뒤 `trim`/`atrim` 으로 그 timestamp 에서 정확히 자른다
-  (in 프레임부터 out 바로 앞 프레임까지 = 편집기에서 본 그대로, 오디오·비디오 모두 0 에서 시작).
-  입력 `-ss`/`-t` 만으로 자르면 seek 지점 다음의 디코딩 가능한 프레임(최대 GOP 하나, 0.5초)부터 시작해 subclip 전체가 밀린다.
-  59.94 원본에서 편집기 한 프레임은 원본 두 프레임이고 그중 뒤의 것을 보여 준다. 컷이 그 두 프레임 사이(field 경계)에
-  있으면 in 을 원본 한 프레임 뒤로 옮겨, 이전 장면 한 프레임이 subclip 맨 앞에 끼지 않게 한다.
-- 녹화 중인 클립도 proxy 가 HLS EVENT playlist 라서 바로 불러와 편집할 수 있고, 길이는 자동으로 늘어난다.
-  녹화 중인 소스의 subclip 은 out 지점이 hires 에 기록될 때까지 `WAITING` 으로 기다렸다가 인코딩한다.
-- 이 시스템으로 녹화하지 않은 파일(외부에서 복사한 mp4/mov/mxf 등)은 플레이어로 보내면 proxy 와 썸네일을 자동 생성한다.
+- Editing uses the low-resolution proxy; subclips are made from the high-resolution hires file. Both come out of the same
+  filter graph of the same ffmpeg, so the same picture carries the same timestamp. The encoder turns each mark into the
+  timestamp of the frame the editor showed at that spot, seeks the input 5 s earlier and then cuts exactly at that
+  timestamp with `trim`/`atrim` (from the in frame up to the frame just before out = exactly what the editor showed,
+  audio and video both starting at 0).
+  Cutting with input `-ss`/`-t` alone would start at the next decodable frame after the seek point (up to one GOP, 0.5 s)
+  and shift the whole subclip.
+  With a 59.94 source, one editor frame is two source frames and the editor shows the later one. When a cut falls between
+  those two frames (on a field boundary), the in point moves one source frame later so that one frame of the previous
+  scene does not sneak in at the start of the subclip.
+- Clips that are still recording can be opened and edited right away, because the proxy is an HLS EVENT playlist; the
+  length grows automatically. A subclip of a recording source waits as `WAITING` until its out point has been written to
+  the hires file, then encodes.
+- Files not recorded by this system (mp4/mov/mxf etc. copied in from elsewhere) get a proxy and thumbnails generated
+  automatically when sent to the player.
 
-## 실행
+## Running
 
 ```bash
-./run.sh                    # 처음 실행 시 .venv 생성 + requirements 설치
+./run.sh                    # first run creates .venv and installs requirements
 # http://<host>:8090/
 ```
 
-서비스로 등록 (sudo 필요):
+As a service (needs sudo):
 
 ```bash
 sudo cp deploy/instantclip.service /etc/systemd/system/
@@ -43,174 +50,219 @@ sudo systemctl daemon-reload && sudo systemctl enable --now instantclip
 journalctl -u instantclip -f
 ```
 
-CPU 전력(W) 표시 — RAPL 은 기본적으로 root 만 읽을 수 있다:
+CPU power (W) display — RAPL is readable only by root by default:
 
 ```bash
 sudo cp deploy/rapl-read.conf /etc/tmpfiles.d/ && sudo systemd-tmpfiles --create /etc/tmpfiles.d/rapl-read.conf
 ```
 
-필요한 것: ffmpeg (`--enable-decklink --enable-ffnvcodec --enable-cuda-nvcc --enable-libopus --enable-libx264`),
-mediamtx (RTSP :8554, WebRTC :8889 + UDP :8189 — 원격 브라우저에서 live 모니터를 보려면 방화벽 개방), NVIDIA 드라이버.
+Copying to another server and restarting it there (needs ssh key login; the remote's `config.json`, venv, logs and
+state files are left alone; refuses while the remote is recording or encoding):
 
-## 환경설정 `config.json`
+```bash
+deploy/push.sh [--force] [user@]host [remote dir, default ~/instantclip]
+```
 
-`config.json` 은 이 서버의 운영 설정이라 git 으로 관리하지 않는다 (`.gitignore`). 저장소에는 견본 `config.example.json` 만 있고,
-`config.json` 이 없으면 처음 시작할 때 견본을 바탕으로 만들어진다 (견본에도 없는 키는 코드의 기본값으로 채워 넣음).
-UI 의 subclip 코덱 설정은 바꾸는 즉시 이 파일에 저장된다. 나머지는 파일을 고친 뒤 재시작.
+Requirements: ffmpeg (`--enable-decklink --enable-ffnvcodec --enable-cuda-nvcc --enable-libopus --enable-libx264`),
+mediamtx (RTSP :8554, WebRTC :8889 + UDP :8189 — open these in the firewall to see the live monitor from a remote
+browser), NVIDIA driver.
 
-| 섹션 | 내용 |
+## Configuration `config.json`
+
+`config.json` holds this server's operating settings and is not tracked by git (`.gitignore`). The repository has only
+the template `config.example.json`; if `config.json` is missing it is created from the template on first start (keys
+missing from the template too are filled with the defaults in code).
+Subclip codec settings in the UI are saved to this file as soon as they change. Everything else: edit the file and restart.
+
+| Section | Contents |
 |---|---|
-| `http.port` | 웹 UI 포트 (기본 8090) |
-| `paths.record / proxy / subclip / thumbnail` | 녹화, proxy, subclip, 썸네일 경로 |
-| `capture` | DeckLink `format_code`(Hi59 = 1080i59.94), 오디오 채널, 디인터레이스 필터, 기본 녹화 프레임레이트 `fps`(60000/1001 또는 30000/1001), 녹화 파일 이름 규칙 (`{prefix}` + strftime), 자동 종료 `auto_stop_sec`(7200 = 2시간), 연장 단위 `extend_sec`(600), `device_nodes` 장치 이름 → `/dev/blackmagic/ioN` (다른 프로세스 사용 감지용, 이 시스템이 캡처할 때마다 자동으로 고쳐짐) |
-| `record_hires` | 고해상도 녹화 코덱. 기본 `mpeg2video` 35M CBR (minrate=maxrate=bitrate), GOP 30, B 2, `threads`, `extra_args`(intra_vlc, non_linear_quant, qmin/qmax). `h264_nvenc`/`libx264` 로 바꿀 수도 있음 |
-| `record_proxy` | 저해상도 녹화 코덱 (854x480, 29.97, 4M, HLS segment 길이) |
-| `live` | WebRTC 모니터용 인코딩 |
-| `editor` | 화살표 키 seek 시간(초): `seek_lr` ←/→ (기본 10), `seek_ud` ↓/↑ (기본 60). 버튼 표시도 이 값을 따름. scene 검출 기본값 `scene_range` (±초, 5), `scene_threshold` (0.3). 프록시 없는 TS 를 브라우저에서 디코딩 `browser_decode` (true), 그 화질 `ts_quality` (`full` / `half` / `quarter`, 기본 full — half 이하는 MPEG-2 lowres 디코딩이라 작은 자막이 깍두기로 뭉개진다), 디코딩 워커 수 `ts_workers` (0 = 자동, CPU 코어 − 2, 2~4) |
-| `thumbnail` | 썸네일 간격/크기 |
-| `subclip` | subclip 코덱 (h264_nvenc / hevc_nvenc / libx264, preset, rc, bitrate, GOP, faststart, 오디오, gain), `name_template`, 동시 인코딩 수 `workers`(UI 에서 변경, 즉시 적용), 인터레이스 원본 디인터레이스 필터 `deinterlace` (`bwdif` / `yadif`, UI 에서 변경 — 인터레이스 원본을 열면 코덱 창에 나타남) |
-| `mediamtx` | RTSP 주소, WebRTC 주소/포트 (`webrtc_url` 이 비어 있으면 `브라우저 host:webrtc_port`) |
-| `log` | 로그 경로/레벨/회전 |
+| `http.port` | Web UI port (default 8090) |
+| `paths.record / proxy / subclip / thumbnail` | Recording, proxy, subclip and thumbnail paths |
+| `capture` | DeckLink `format_code` (Hi59 = 1080i59.94), audio channels, deinterlace filter, default recording frame rate `fps` (60000/1001 or 30000/1001), recording file name pattern (`{prefix}` + strftime), auto stop `auto_stop_sec` (7200 = 2 h), extension step `extend_sec` (600), `device_nodes` device name → `/dev/blackmagic/ioN` (to detect use by other processes; corrected automatically each time this system captures) |
+| `record_hires` | High-resolution recording codec. Default `mpeg2video` 35M CBR (minrate=maxrate=bitrate), GOP 30, B 2, `threads`, `extra_args` (intra_vlc, non_linear_quant, qmin/qmax). Can be switched to `h264_nvenc`/`libx264` |
+| `record_proxy` | Low-resolution recording codec (854x480, 29.97, 4M, HLS segment length) |
+| `live` | Encoding for the WebRTC monitor |
+| `editor` | Arrow-key seek times (s): `seek_lr` ←/→ (default 10), `seek_ud` ↓/↑ (default 60); the buttons show these values too. Scene detection defaults `scene_range` (± s, 5), `scene_threshold` (0.3). Decode TS without a proxy in the browser: `browser_decode` (true), its quality `ts_quality` (`full` / `half` / `quarter`, default full — half and below use MPEG-2 lowres decoding, which turns small captions into blocks), number of decode workers `ts_workers` (0 = auto, CPU cores − 2, 2–4) |
+| `thumbnail` | Thumbnail interval/size |
+| `subclip` | Subclip codec (h264_nvenc / hevc_nvenc / libx264, preset, rc, bitrate, GOP, faststart, audio, gain), `name_template`, concurrent encodes `workers` (changed in the UI, applied immediately), deinterlace filter for interlaced sources `deinterlace` (`bwdif` / `yadif`, changed in the UI — appears in the codec panel when an interlaced source is open) |
+| `mediamtx` | RTSP address, WebRTC address/port (if `webrtc_url` is empty: `browser host:webrtc_port`) |
+| `log` | Log path/level/rotation |
 
-subclip 이름: `name_template` = `{src}_[{n:03d}]_{start:.2f}_{end:.2f}_{dur:.2f}`
-→ `소스클립이름_[N]_시작초_종료초_길이.mp4` (예 `REC_20261113_090000_[001]_125.40_190.20_64.80.mp4`).
-N 은 소스 클립별 카운터로 `state.json` 에 저장된다. 카운터가 없는 소스는 subclip 폴더의 기존 번호(괄호 없는 예전 이름 포함) 최댓값 + 1 에서 시작.
-편집제어의 RESET 으로 그 소스의 카운터를 [001] 부터 다시 시작한다 (카운터는 모든 사용자가 공유하며, 누가 번호를 쓰거나 리셋하면 모든 화면의 다음 번호가 1초 안에 갱신된다). 같은 이름의 파일이 이미 있으면 덮어쓰지 않고 `-2`, `-3` … 을 붙인다.
+Subclip names: `name_template` = `{src}_[{n:03d}]_{start:.2f}_{end:.2f}_{dur:.2f}`
+→ `sourceclip_[N]_start_end_duration.mp4` (e.g. `REC_20261113_090000_[001]_125.40_190.20_64.80.mp4`).
+N is a per-source counter stored in `state.json`. A source without a counter starts at the highest existing number in
+the subclip folder (including older names without brackets) + 1.
+RESET in the edit panel restarts that source's counter at [001] (counters are shared by all users; when anyone uses a
+number or resets, the next number on every screen updates within a second). If a file with the same name already
+exists it is not overwritten; `-2`, `-3` … is appended.
 
-MPEG-2 는 NVENC 가 지원하지 않아 CPU 로 인코딩한다 (실측: 1080p59.94 35 Mbps 실시간 60 fps, drop 0).
-1080p59.94 는 MPEG-2 Main@High 의 표준 샘플레이트 한도를 넘지만 ffmpeg/NVDEC 등 일반 디코더는 문제없이 재생한다.
+NVENC does not support MPEG-2, so it is encoded on the CPU (measured: 1080p59.94 35 Mbps in real time at 60 fps, 0 drops).
+1080p59.94 exceeds the standard sample-rate limit of MPEG-2 Main@High, but common decoders such as ffmpeg/NVDEC play it fine.
 
-## 화면
+## Screen
 
-왼쪽 위 로고 옆 `[YYYY-MM-DD HH:MM]` 은 서버가 시작할 때 체크아웃되어 있던 코드의 마지막 커밋 일시다.
+`[YYYY-MM-DD HH:MM]` next to the logo at the top left is the last commit time of the code checked out when the server
+started; next to it is the server hostname (the browser tab title is `instantclip @ hostname` too).
 
 ```
-┌ 녹화제어 ────┐┌ 편집제어 ───────────────┐┌ Subclip 코덱 ┐
+┌ Recording ───┐┌ Edit control ────────────┐┌ Subclip codec┐
 │              ││                          ││              │
-├╌╌╌(드래그)╌╌╌┤│                          │├ 시스템 상태 ─┤
-│ 녹화 클립    │├ 미디어 브라우저: Subclip ┤│  + 인코더 큐 │
+├╌╌╌(drag)╌╌╌╌╌┤│                          │├ System status┤
+│ Rec clips    │├ Media browser: Subclip   ┤│ + enc. queue │
 └──────────────┘└──────────────────────────┘└──────────────┘
 ```
 
-1. **녹화제어** — DeckLink 선택, 접두어, 녹화 프레임레이트, REC/STOP, live 모니터(400px, WebRTC), dBFS 레벨미터.
-   프레임레이트: 1080p 59.94 (필드마다 한 프레임, bwdif mode=1) 또는 1080p 29.97 (프레임마다 한 프레임, mode=0).
-   녹화마다 고르며 브라우저에 기억된다 (처음엔 `capture.fps`). 녹화 중에는 바꿀 수 없고 클립 이름 옆에 표시된다.
-   제목 오른쪽 `«` 로 왼쪽 열(녹화제어 + 녹화 클립)을 가장자리의 얇은 띠로 접고, 띠를 누르면 다시 펼친다
-   (편집제어가 그만큼 넓어짐, 브라우저에 기억, 화면 폭 1050px 이하에서는 없음). 접혀 있어도 녹화는 계속되고 띠에 `● REC` 가 보인다.
-   REC 를 누르면 2시간 뒤 자동 종료(녹화만 걸어 두고 자리를 비우는 경우 방지). `+10분` 으로 연장하며,
-   녹화 시간과 자동 종료까지 남은 시간을 같은 크기로 표시한다 (10분 미만 노랑, 3분 미만 빨강 깜빡임).
-   녹화제어와 그 아래 녹화 클립 목록 사이의 가로선은 끌어서 높이를 바꿀 수 있다 (더블클릭: 기본값, 브라우저에 기억).
-   소리는 MUTE 로 시작하고 버튼을 눌러야 나온다. ▾ 를 누르면 접히고 WebRTC 연결도 끊는다.
-   `입력 모니터` 를 켜면 녹화 전에도 입력을 볼 수 있다 (켜 둔 동안 DeckLink 장치를 점유).
-   다른 프로세스(mediarouter 등)가 쓰고 있는 장치는 목록에서 회색 `— 사용 중` 으로 표시되어 고를 수 없고,
-   REC/입력 모니터도 거부된다 (2초마다 `/proc/*/fd` 로 확인; 같은 사용자 계정의 프로세스만 보임).
-   Duo 2 는 장치 노드 순서가 목록 순서와 다르다 (Duo (2)=io2, Duo (3)=io1).
-2. **편집제어** — 미디어 브라우저에서 클립을 끌어다 놓거나 더블클릭. 첫 프레임에서 정지 상태로 열린다.
-   제목 오른쪽 `⏏ EJECT` 로 클립을 내리고 빈 플레이어로 돌아간다 (그 클립의 mark 는 기억되어 다시 열면 복원).
-   subclip 을 열어 결과를 확인한 뒤에는 `↩ 녹화클립 로드` 로 마지막에 열었던 녹화 클립을 그 playhead 위치 그대로 다시 불러온다
-   (녹화 클립이 아닌 것을 열었거나 EJECT 했을 때 보이며, 새로고침해도 세션과 함께 기억됨).
-   타임라인 hover = 썸네일, IN/OUT 구간 표시, mark 시간은 클립마다 브라우저에 기억된다.
-   SUBCLIP 번호 칸에 다음 번호가 보이고 RESET 으로 [001] 부터 다시 시작한다.
-3. **Subclip 코덱** — 바꾸는 즉시 `config.json` 에 저장. 동시 인코딩 수도 여기서 설정 (진행 중인 작업에 바로 적용).
-   프레임레이트는 59.94 / 29.97. 편집제어에 29.97 녹화 원본을 올리면 29.97 로 고정된다
-   (인코더도 원본보다 높은 프레임레이트로는 변환하지 않으므로, 설정이 59.94 라도 29.97 원본의 subclip 은 29.97).
-   제목 오른쪽 `»` 로 오른쪽 열(코덱 + 시스템 상태)을 가장자리의 얇은 띠로 접고, 띠를 누르면 다시 펼친다 (편집제어·브라우저가 그만큼 넓어짐, 브라우저에 기억).
-   `▾` 는 설정을 제목줄만 남기고 위로 접는다 (Live 모니터처럼; 그만큼 시스템 상태가 넓어짐, 브라우저에 기억). 화면 폭 1500px 이하에서는 `▾` 만 있다.
-4. **미디어 브라우저** — 녹화 클립(REC = 녹화 중)은 녹화제어 아래, subclip 은 편집제어 아래 넓은 목록. 폴더 생성, 이름변경(F2), 삭제(Del),
-   Ctrl/Shift 다중선택, subclip 다운로드. 새 subclip 은 오른쪽 패널의 현재 폴더에 저장된다.
-   정렬: 이름 / 생성일시(파일 수정 시각), ↓↑ 버튼으로 역순 (패널별로 브라우저에 기억).
-   이동: 항목을 (여러 개 선택해서) 폴더 행에 끌어다 놓으면 그 폴더로, `↑` 버튼에 놓으면 상위 폴더로 이동.
-   대상에 같은 이름이 하나라도 있으면 아무것도 옮기지 않는다. 인코딩 중인 subclip 은 옮기거나 지울 수 없다.
-   녹화 클립의 이름변경/삭제는 proxy·썸네일도 함께 처리하며, 녹화 중인 클립과 대기/인코딩 중인 subclip 작업의 원본은 바꾸거나 지울 수 없다.
-5. **시스템 상태** (코덱 아래) — CPU(코어별), RAM, GPU/NVENC/NVDEC/VRAM, NIC 사용률, 온도, 전력, 디스크 남은 용량,
-   인코더 큐(가장 최근에 등록한 작업이 맨 위, 진행률·취소).
+1. **Recording control** — DeckLink selection, prefix, recording frame rate, REC/STOP, live monitor (400 px, WebRTC), dBFS level meter.
+   Frame rate: 1080p 59.94 (one frame per field, bwdif mode=1) or 1080p 29.97 (one frame per frame, mode=0).
+   Chosen per recording and remembered by the browser (initially `capture.fps`). It cannot be changed while recording
+   and is shown next to the clip name.
+   `«` at the right of the title folds the left column (recording control + recorded clips) into a thin strip at the
+   edge; clicking the strip unfolds it (the edit panel gets that much wider; remembered by the browser; not present at
+   screen widths of 1050 px or less). Recording continues while folded and the strip shows `● REC`.
+   REC stops automatically after 2 hours (in case a recording is left running unattended). `+10분` extends it;
+   recording time and time left until auto stop are shown at the same size (yellow under 10 minutes, blinking red under 3).
+   The horizontal line between recording control and the recorded clip list below can be dragged to change the height
+   (double-click: default; remembered by the browser).
+   Sound starts muted (MUTE) and plays only after pressing the button. ▾ folds the monitor and also closes the WebRTC connection.
+   `입력 모니터` (input monitor) shows the input even before recording (it holds the DeckLink device while on).
+   Devices used by another process (mediarouter etc.) are shown greyed out as `— 사용 중` (in use) and cannot be
+   selected; REC and input monitor are refused too (checked every 2 s via `/proc/*/fd`; only processes of the same user
+   account are visible).
+   On the Duo 2, the device node order differs from the list order (Duo (2)=io2, Duo (3)=io1).
+2. **Edit control** — drag a clip from the media browser and drop it, or double-click it. It opens paused on the first frame.
+   `⏏ EJECT` at the right of the title unloads the clip and returns to an empty player (the clip's marks are remembered
+   and restored when it is opened again).
+   After opening a subclip to check the result, `↩ 녹화클립 로드` (load recorded clip) reopens the last recorded clip
+   at the same playhead position (shown when something other than a recorded clip is open or after EJECT; remembered
+   with the session across reloads).
+   Timeline hover = thumbnail, IN/OUT range shown; mark times are remembered per clip by the browser.
+   The SUBCLIP number box shows the next number, and RESET restarts at [001].
+3. **Subclip codec** — saved to `config.json` as soon as it changes. Concurrent encodes are set here too (applied to running jobs immediately).
+   Frame rate is 59.94 / 29.97. When a 29.97 recording is loaded in the edit panel, it is locked to 29.97
+   (the encoder never converts to a higher frame rate than the source, so a subclip of a 29.97 source is 29.97 even if the setting is 59.94).
+   `»` at the right of the title folds the right column (codec + system status) into a thin strip at the edge; clicking
+   the strip unfolds it (edit panel and browser get that much wider; remembered by the browser).
+   `▾` folds the settings up to the title bar (like the live monitor; system status gets that much taller; remembered by
+   the browser). At screen widths of 1500 px or less only `▾` is present.
+4. **Media browser** — recorded clips (REC = recording) below recording control; subclips in the wide list below the
+   edit panel. New folder, rename (F2), delete (Del), Ctrl/Shift multi-select, subclip download. New subclips are saved
+   in the current folder of the right-hand panel.
+   Sorting: name / creation time (file modification time), ↓↑ button reverses (remembered per panel by the browser).
+   Moving: drag items (several if selected) onto a folder row to move them into it, or onto the `↑` button to move them to the parent folder.
+   If even one name already exists at the target, nothing is moved. A subclip being encoded cannot be moved or deleted.
+   Renaming/deleting a recorded clip also handles its proxy and thumbnails; a clip being recorded and the sources of
+   waiting/encoding subclip jobs cannot be changed or deleted.
+5. **System status** (below the codec panel) — host uptime, instantclip process uptime, CPU (per core), RAM,
+   GPU/NVENC/NVDEC/VRAM, NIC utilization, temperatures, power, free disk space, encoder queue (most recently added job
+   on top, progress, cancel).
 
-### 단축키 (편집제어 창 안 어디든 포커스가 있을 때 — 단축키 설명 줄 옆 초록 "단축키 사용 가능", 창 밖으로 포커스가 나가면 빨간 "단축키 꺼짐")
+### Shortcuts (when focus is anywhere in the edit control panel — green "단축키 사용 가능" next to the shortcut help line; red "단축키 꺼짐" when focus leaves the panel)
 
-| 키 | 동작 | 키 | 동작 |
+| Key | Action | Key | Action |
 |---|---|---|---|
 | `I` | mark in | `O` | mark out |
-| `Ctrl+I` | mark in 으로 이동 후 정지 | `Ctrl+O` | mark out 으로 이동 후 정지 |
-| `Enter` | subclip 인코더 큐 등록 | `Space` / `K` | 재생/일시정지 |
-| `←` `→` | ∓`editor.seek_lr` 초 (기본 10) | `↓` `↑` | ∓`editor.seek_ud` 초 (기본 60) |
-| `J` `L` | -0.5 / +0.5 초 | `,` `.` | -1 / +1 프레임 |
+| `Ctrl+I` | go to mark in and pause | `Ctrl+O` | go to mark out and pause |
+| `Enter` | add subclip to the encoder queue | `Space` / `K` | play/pause |
+| `←` `→` | ∓`editor.seek_lr` s (default 10) | `↓` `↑` | ∓`editor.seek_ud` s (default 60) |
+| `J` `L` | -0.5 / +0.5 s | `,` `.` | -1 / +1 frame |
+| `/` | scene change detection (same as the `✂ SCENE 검출` button) | | |
+| `1`–`9` | while the detection strip is open: go to cut N (first frame of the new scene) and pause | `Shift+1`–`9` | go to cut N − 1 frame (last frame of the previous scene) — for finding out points |
 
-키는 `KeyboardEvent.code` 로 판별하므로 한글 입력 상태에서도 동작한다.
-mark in 프레임은 subclip 에 포함되고 mark out 프레임은 포함되지 않는다 (duration = out − in 프레임, 마지막 프레임은 out 바로 앞 프레임).
-녹화 중인 소스의 subclip 은 대기(WAITING) 중에 인코딩 슬롯을 차지하지 않는다.
+Keys are matched by `KeyboardEvent.code`, so they work with the Korean input method active too.
+The mark in frame is included in the subclip and the mark out frame is not (duration = out − in frames; the last frame
+is the one just before out).
+Subclips of recording sources do not take an encoding slot while waiting (WAITING).
 
-### Scene change 검출
+### Scene change detection
 
-타임라인 아래 `✂ SCENE 검출` 을 누르면 playhead 앞뒤 `범위 ±N초`(기본 5) 안의 장면 전환(컷)을 찾아,
-그 구간만 확대한 띠에 프레임마다의 변화량(막대)과 threshold(점선), 컷(파란 세로선), mark in/out, playhead 를 그린다.
-- 컷 = threshold(기본 0.3, 0~1) 이상인 프레임 = **새 장면의 첫 프레임**. threshold 는 바꾸는 즉시 다시 그린다 (재검출 없음).
-- 띠를 클릭하면 그 프레임으로 이동하고 정지한다 (컷 근처를 누르면 컷에 맞춰짐). 그 자리에서
-  `I` = 새 장면부터 subclip 시작, `O` = 이전 장면의 마지막 프레임까지 (out 프레임은 포함되지 않으므로).
-- 버튼을 눌렀을 때만 서버가 계산한다 (proxy 를 ffmpeg `scene` 점수로 분석, 10초 구간 약 0.5초).
-  편집기가 보여 주는 proxy 자체를 프레임 단위로 세어 분석하므로 표시되는 프레임 번호가 편집기와 정확히 일치한다.
-- 범위·threshold 는 브라우저에 기억되고, 처음 값은 `config.json` `editor.scene_range` / `editor.scene_threshold`.
-- 입력 칸에 숫자를 칠 때는 단축키가 동작하지 않는다.
+![Scene change detection — the strip after finding 3 cuts within ±10 s of the playhead (blue lines with numbers = cuts, green = mark in, white = playhead)](scenechange_detection.png)
 
-### 외부 녹화 파일 (tvheadend 등) — 브라우저 디코딩
+Pressing `✂ SCENE 검출` below the timeline (shortcut `/`) finds scene changes (cuts) within `범위 ±N초` (range ±N s,
+default 5) around the playhead and draws a zoomed strip of just that span: per-frame change (bars), the threshold
+(dashed line), cuts (blue vertical lines), mark in/out and the playhead.
+- Cut = a frame at or above the threshold (default 0.3, 0–1) = **the first frame of the new scene**. Changing the
+  threshold redraws immediately (no re-detection).
+- Clicking the strip goes to that frame and pauses (clicking near a cut snaps to it). From there,
+  `I` = start the subclip at the new scene, `O` = end it at the last frame of the previous scene (the out frame is not included).
+- Cuts are numbered 1–9. While the strip is open, number keys `1`–`9` go to that cut (the first frame of the new scene —
+  press `I` right there), and `Shift+1`–`9` go to one frame before it (the last frame of the previous scene), pausing in
+  both cases. Once the strip is closed (`✕`), number keys do nothing.
+  Since the out frame is not included in the subclip, to cut up to the end of the previous scene press `O` at the cut itself (`1`–`9`).
+- The server computes it only when the button is pressed (ffmpeg `scene` score over the proxy, about 0.5 s for a 10 s span).
+  It analyses the very proxy the editor shows, counted frame by frame, so the frame numbers shown match the editor exactly.
+- Range and threshold are remembered by the browser; initial values come from `config.json` `editor.scene_range` / `editor.scene_threshold`.
+- Shortcuts are disabled while typing numbers into the input boxes.
 
-이 시스템이 녹화하지 않은 파일도 녹화 폴더(`paths.record`) 아래에 두거나 **심볼릭 링크**로 연결하면 편집할 수 있다.
+### External recordings (tvheadend etc.) — browser decoding
+
+Files not recorded by this system can be edited too, if placed under the recording folder (`paths.record`) or linked
+there with a **symbolic link**.
 ```
 ln -s /mnt/tvheadend /mnt/raid0_old/capture/tvheadend
 ```
-- 링크로 연결한 폴더는 읽기 전용이다 (UI 에서 이름변경/이동/삭제/폴더 생성 거부 — 원본 보호).
-- 처음 여는 폴더의 길이(duration)는 백그라운드 ffprobe 가 끝나면 채워진다 — 목록용은 가벼운 ffprobe(`-probesize 1M`, TS 한 개에 2~4 MB 읽음, 전체 분석은 13 MB 정도)로 하고, 결과는 `probe_cache.json` 에 저장해 재시작 후에도 다시 읽지 않는다 (파일 크기·수정시각이 바뀐 것만 다시 읽음).
-- 프록시가 없는 MPEG-2 TS(목록의 `TS` 표시)는 프록시를 만들지 않고 **브라우저가 원본을 직접 디코딩**한다
-  (`web/tsplayer.js`, wasm 디코더 — [XDCAM50_MXF_webplayer](https://github.com/sendust/XDCAM50_MXF_webplayer) 방식):
-  - 서버(`app/tsindex.py`)는 파일 앞 4 MB 와 끝 2 MB 만 읽어 PAT/PMT, 첫 I-프레임(= 프레임 0), 프레임 수를 알아내고,
-    프레임 번호를 주면 그 GOP 의 바이트 범위를 보간 탐색(작은 읽기 몇 번, 평균 0.1~0.2 초)으로 찾는다. 파일 전체를 훑지 않는다.
-    B-frame / open GOP 도 처리한다 (GOP 범위 = 그 I-프레임부터 다음 I-프레임 뒤 B-frame 까지).
-    보간이 제자리걸음하면(큰 I-프레임 안에 떨어진 경우 등) 이분 탐색으로 바꾼다.
-  - 수신 불량(off-air) 대비: 동기 바이트를 잃으면 다시 찾고, transport_error_indicator 패킷은 버리고, PTS 마커 비트가
-    틀린 헤더는 무시하고, 주변 I-프레임과 맞지 않는 PTS 의 그림은 버린다. 디코더는 깨진 패킷/프레임을 건너뛰고(은닉),
-    오디오가 깨진 GOP 는 소리 없이 영상만 재생한다. GOP 탐색이 실패하면 브라우저가 1·2초 뒤 다시 시도한다.
-  - 브라우저 워커(`web/tsworker.js`, 여러 개)가 그 범위를 HTTP Range 로 원본에서 받아 TS 를 풀고, MPEG-2 비디오(기본 Full, Half 는 lowres 1)와
-    첫 번째 오디오 스트림(AC-3 → 48 kHz 스테레오)을 디코딩한다. 오디오는 프레임 0 기준 샘플 격자로 잘라 GOP 끼리 빈틈 없이 이어진다.
-  - 인터레이스 프레임은 첫 필드를 보여준다(WebGL bob). 편집기 프레임 k = 원본의 k 번째 표시 프레임이라
-    scene 검출(원본에서 첫 필드로 직접 계산)과 subclip 인코딩도 녹화 클립과 똑같이 프레임 단위로 맞는다.
-  - 디코더 `web/vendor/tsdec/tsdec.wasm`(1 MB)은 FFmpeg 7.1.1 의 libavcodec 에서 MPEG-2 / AC-3 / E-AC-3 / MP2 / AAC 디코더만 넣어
-    `wasm/build.sh` 로 빌드한다(emsdk 4.0.10, `wasm/tsdec.c`). 디코더를 GOP 사이에 재사용하고 메모리 누수가 없다
-    (ffmpeg.wasm 명령줄 코어는 실행마다 메모리가 새서 몇 분 재생하면 디코딩이 멈췄다). 결과는 네이티브 ffmpeg 와 비트 단위로 같다.
-  - 측정(서버 CPU, 1080i 15~19 Mbps): 처음 열기 약 0.5 초, 임의 위치 탐색 약 0.25 초(Half) / 0.4 초(Full),
-    연속 디코딩 워커 4개 Half 258 fps / Full 197 fps.
-    썸네일은 없다. 브라우저에 WebGL2 가 필요하다.
-  - 29.97 이 아닌 TS 나 MPEG-2 가 아닌 파일은 지금처럼 프록시를 만들어 편집한다.
-- 인코더는 인터레이스 원본(`field_order` tt/bb)을 항상 디인터레이스한다. 필터는 코덱 창에서 bwdif / yadif 중 고르고(NVENC 면 `_cuda` 판),
-  프레임레이트가 mode 를 정한다: 59.94 = `mode=1`(필드마다 한 프레임, 1080p59.94), 29.97 = `mode=0`(프레임마다 한 프레임).
-  59.94 로 만들 때 마지막 프레임의 두 필드 사이에 컷이 있으면(편집기에는 안 보이는 다음 장면 한 필드) 그 필드를 뺀다.
-- HEVC NVENC 가 B-frame 을 지원하지 않는 GPU(Quadro P2200 등 Pascal)는 처음 인코딩할 때 감지해서 `-bf 0` 으로 인코딩한다
-  (같은 GPU 인코더 그대로, CPU 로 바꾸지 않음). 설정한 B-frame 수로는 실패하고 `-bf 0` 으로는 되는 경우만 그렇게 판단하고,
-  둘 다 실패하면(GPU 사용 중 등) 판단을 미루고 설정대로 인코딩한다.
+- Linked folders are read-only (rename/move/delete/new folder are refused in the UI — protects the originals).
+- Durations in a folder opened for the first time fill in when the background ffprobe finishes — listings use a light
+  ffprobe (`-probesize 1M`, reads 2–4 MB per TS; a full analysis reads about 13 MB) and the results are saved in
+  `probe_cache.json`, so they are not read again after a restart (only files whose size or modification time changed are re-read).
+- MPEG-2 TS without a proxy (`TS` in the list) gets no proxy; **the browser decodes the original directly**
+  (`web/tsplayer.js`, wasm decoder — the approach of [XDCAM50_MXF_webplayer](https://github.com/sendust/XDCAM50_MXF_webplayer)):
+  - The server (`app/tsindex.py`) reads only the first 4 MB and the last 2 MB of the file to find PAT/PMT, the first
+    I-frame (= frame 0) and the frame count; given a frame number, it finds that GOP's byte range by interpolation
+    search (a few small reads, 0.1–0.2 s on average). It never scans the whole file.
+    B-frames / open GOPs are handled (GOP range = from its I-frame up to the B-frames after the next I-frame).
+    When interpolation stalls (e.g. landing inside a large I-frame), it switches to bisection.
+  - Poor reception (off-air): lost sync bytes are found again, packets with transport_error_indicator are dropped,
+    headers with wrong PTS marker bits are ignored, and pictures whose PTS does not fit the neighbouring I-frames are
+    discarded. The decoder skips (conceals) damaged packets/frames, and a GOP with damaged audio plays its video
+    silently. If a GOP lookup fails, the browser retries after 1–2 s.
+  - Browser workers (`web/tsworker.js`, several) fetch that range from the original with HTTP Range, demux the TS, and
+    decode the MPEG-2 video (Full by default, Half = lowres 1) and the first audio stream (AC-3 → 48 kHz stereo). Audio
+    is cut on a sample grid anchored at frame 0, so GOPs join without gaps.
+  - Interlaced frames show their first field (WebGL bob). Editor frame k = the source's k-th displayed frame, so scene
+    detection (computed directly on the source's first field) and subclip encoding line up frame by frame just as with recorded clips.
+  - The decoder `web/vendor/tsdec/tsdec.wasm` (1 MB) contains only the MPEG-2 / AC-3 / E-AC-3 / MP2 / AAC decoders of
+    FFmpeg 7.1.1's libavcodec and is built with `wasm/build.sh` (emsdk 4.0.10, `wasm/tsdec.c`). The decoder is reused
+    between GOPs and does not leak memory (the ffmpeg.wasm command-line core leaked memory on every run, and decoding
+    stopped after a few minutes of playback). Output is bit-identical to native ffmpeg.
+  - Measured (server CPU, 1080i 15–19 Mbps): first open about 0.5 s, random seek about 0.25 s (Half) / 0.4 s (Full),
+    continuous decoding with 4 workers Half 258 fps / Full 197 fps.
+    There are no thumbnails. The browser needs WebGL2.
+  - TS that is not 29.97, and files that are not MPEG-2, get a proxy and are edited as before.
+- The encoder always deinterlaces interlaced sources (`field_order` tt/bb). The filter is chosen in the codec panel,
+  bwdif or yadif (the `_cuda` variant with NVENC), and the frame rate picks the mode: 59.94 = `mode=1` (one frame per
+  field, 1080p59.94), 29.97 = `mode=0` (one frame per frame).
+  When making 59.94, if there is a cut between the two fields of the last frame (one field of the next scene, not
+  visible in the editor), that field is dropped.
+- On GPUs whose HEVC NVENC does not support B-frames (Pascal, e.g. Quadro P2200), this is detected on the first encode
+  and `-bf 0` is used (same GPU encoder, never switching to the CPU). It is concluded only when the configured B-frame
+  count fails and `-bf 0` works; if both fail (GPU busy etc.) the decision is deferred and encoding uses the settings as is.
 
-### 세션 복원 (클라이언트 IP 별)
+### Session restore (per client IP)
 
-편집제어 상태(불러온 클립, 플레이헤드 위치, 재생/정지, mark in/out)를 서버가 접속 IP 별로 기억한다.
-새로고침하거나 같은 IP 에서 다시 접속하면 그 클립을 다시 불러와 같은 위치로 가고, 재생 중이었으면 이어서 재생한다
-(브라우저 자동재생 정책에 막히면 위치만 복원하고 ▶ 안내). EJECT 하면 빈 상태가 기억된다.
-`sessions.json` 에 저장 (30일 지난 항목은 시작할 때 정리). 같은 IP 의 여러 브라우저는 하나의 세션을 공유한다.
+The server remembers the edit control state (loaded clip, playhead position, playing/paused, mark in/out) per client IP.
+Reloading, or connecting again from the same IP, reloads that clip at the same position and resumes playback if it was
+playing (if the browser autoplay policy blocks it, only the position is restored with a ▶ hint). EJECT stores an empty state.
+Stored in `sessions.json` (entries older than 30 days are cleaned up at start). Several browsers on the same IP share one session.
 
-## 로그
+## Logs
 
-`logs/instantclip.log` (앱 이벤트), `logs/ffmpeg.log` (모든 ffmpeg 명령줄과 stderr). 10 MB × 10 회전.
+`logs/instantclip.log` (app events), `logs/ffmpeg.log` (every ffmpeg command line and stderr). 10 MB × 10 rotation.
 
-## 구조
+## Layout
 
 ```
-app/main.py       FastAPI: REST, /ws 상태 push(1초), 정적 파일, /media/proxy, /media/thumb, /api/ts
-app/config.py     config.json 로드(없으면 config.example.json 에서 시작)/기본값/원자적 저장
-app/logger.py     로그 설정
-app/ffutil.py     ffmpeg 프로세스 관리(-progress 파싱, SIGINT 정상 종료), decklink 목록, ffprobe
-app/recorder.py   채널(장치)별 preview / record ffmpeg
-app/media.py      저장소 레이아웃, 브라우저 동작, proxy 생성
-app/tsindex.py    TS 의 GOP 위치 탐색 (브라우저 디코딩용, 파일 앞/끝과 작은 읽기만)
-app/encoder.py    subclip 큐/워커
-app/sysmon.py     psutil + NVML 상태 수집
-app/session.py    클라이언트 IP 별 편집 세션 (sessions.json)
+app/main.py       FastAPI: REST, /ws status push (1 s), static files, /media/proxy, /media/thumb, /api/ts
+app/config.py     config.json load (from config.example.json if missing) / defaults / atomic save
+app/logger.py     logging setup
+app/ffutil.py     ffmpeg process management (-progress parsing, SIGINT graceful stop), decklink list, ffprobe
+app/recorder.py   per-channel (device) preview / record ffmpeg
+app/media.py      storage layout, browser operations, proxy generation
+app/tsindex.py    GOP lookup in TS (for browser decoding; only file head/tail and small reads)
+app/encoder.py    subclip queue/workers
+app/sysmon.py     psutil + NVML status collection
+app/session.py    per-client-IP edit sessions (sessions.json)
 web/              index.html, style.css, *.js (vendor: hls.js 1.5.20, mediamtx reader.js, tsdec)
-wasm/             tsdec.c + build.sh: TS 디코더 wasm 빌드 (출력 web/vendor/tsdec/)
-web/ts*.js        TS 브라우저 디코딩: tsworker(디먹스+wasm 디코딩) · tsdecode(워커 풀) · tsplayer(<video> 대역) · yuv(WebGL)
+wasm/             tsdec.c + build.sh: TS decoder wasm build (output web/vendor/tsdec/)
+web/ts*.js        TS browser decoding: tsworker (demux + wasm decode) · tsdecode (worker pool) · tsplayer (<video> stand-in) · yuv (WebGL)
+deploy/           systemd unit, RAPL tmpfiles rule, push.sh (copy to another host and restart)
 ```
