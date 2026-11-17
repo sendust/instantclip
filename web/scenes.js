@@ -4,7 +4,8 @@
  * the threshold, i.e. the first frame of a new shot. Clicking a cut parks the playhead on it:
  * I there = the new shot starts the subclip, O there = the subclip ends on the last frame of the old shot.
  * The threshold only filters what was fetched, so changing it redraws without re-analysing.
- * While the strip is open, keys 1-9 jump to the first nine cuts (numbered on the strip).
+ * While the strip is open, keys 1-9 jump to the first nine cuts (numbered on the strip), Shift+1-9 to the
+ * frame before each (the last frame of the old shot).
  */
 const Scenes = {
   data: null,      // {path, from, to, frames: [[k, score]...]}
@@ -94,12 +95,12 @@ const Scenes = {
     Player.box.focus({ preventScroll: true });
   },
 
-  /* key n (1-9): park on the n-th cut, like clicking it */
-  jump(n) {
+  /* key n (1-9): park on the n-th cut, like clicking it; off -1: on the frame before it */
+  jump(n, off = 0) {
     const k = this.cuts()[n - 1];
     if (k == null) return toast(`컷 ${n}번이 없습니다 (컷 ${this.cuts().length}개)`, true);
     Player.v.pause();
-    Player.seek((k + 0.5) * FRAME);
+    Player.seek((Math.max(0, k + off) + 0.5) * FRAME);
   },
 
   hover(e) {

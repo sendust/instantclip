@@ -409,12 +409,13 @@ const Player = {
       KeyJ: "back05", KeyL: "fwd05",
       Comma: "frame-", Period: "frame+",
     };
-    // 1-9: the n-th cut of the scene detection strip, only while it is open
+    // 1-9: the n-th cut of the scene detection strip, only while it is open; Shift: the frame before it
+    // (the last frame of the old shot, to find an out point)
     const digit = !ctrl && /^(Digit|Numpad)([1-9])$/.exec(e.code);
     if (digit && Scenes.data) {
       e.preventDefault();
       e.stopPropagation();
-      return Scenes.jump(Number(digit[2]));
+      return Scenes.jump(Number(digit[2]), e.shiftKey ? -1 : 0);
     }
     const a = map[e.code];
     if (!a || (ctrl && !["KeyI", "KeyO"].includes(e.code))) return;
