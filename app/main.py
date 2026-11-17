@@ -19,6 +19,7 @@ from .media import ROOTS, Media, MediaError
 from .recorder import Recorder
 from .session import Sessions
 from .sysmon import SysMon
+from .tsindex import TsError, TsIndex, is_ts
 
 cfg = Config()
 setup_logging(cfg.section("log"))
@@ -27,6 +28,7 @@ log = logging.getLogger("main")
 media = Media(cfg)
 recorder = Recorder(cfg, media)
 encoder = Encoder(cfg, media)
+tsindex = TsIndex()
 sysmon = SysMon(cfg)
 sessions = Sessions()
 WEB = ROOT / "web"
@@ -317,6 +319,34 @@ async def session_put(request: Request):
     except (ValueError, TypeError, KeyError):
         raise HTTPException(400, "bad session")
     return {"ok": True}
+
+
+# ---------------- TS clips decoded in the browser ----------------
+def _ts_file(path: str):
+    p = media.resolve("capture", path)
+    if not p.is_file() or not is_ts(p):
+        raise HTTPException(404)
+    return p
+
+
+@app.get("/api/ts/open")
+async def ts_open(path: str):
+    p = _ts_file(path)
+    try:
+        tf = await asyncio.to_thread(tsindex.get, p)
+    except (TsError, OSError) as e:
+        raise HTTPException(400, str(e))
+    return {**tf.info(), "path": path}
+
+
+@app.get("/api/ts/gop")
+async def ts_gop(path: str, frame: int):
+    p = _ts_file(path)
+    try:
+        tf = await asyncio.to_thread(tsindex.get, p)
+        return await asyncio.to_thread(tf.gop, frame)
+    except (TsError, OSError) as e:
+        raise HTTPException(400, str(e))
 
 
 # ---------------- live proxy (clips without a built proxy) ----------------
