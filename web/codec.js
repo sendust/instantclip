@@ -17,6 +17,7 @@ const CODEC_OPTS = {
     profile: ["baseline", "main", "high"],
   },
 };
+const DEINTERLACERS = ["bwdif", "yadif"];   // older configs say "auto" / "off": shown (and used) as bwdif
 const PRESET_DEFAULT = { h264_nvenc: "p5", hevc_nvenc: "p5", libx264: "veryfast" };
 
 const Codec = {
@@ -81,6 +82,7 @@ const Codec = {
   toForm() {
     const f = this.form, c = this.cfg;
     for (const el of f.elements) {
+      if (el.name === "deinterlace") { el.value = DEINTERLACERS.includes(c.deinterlace) ? c.deinterlace : "bwdif"; continue; }
       if (!el.name || !(el.name in c)) continue;
       if (el.type === "checkbox") el.checked = !!c[el.name];
       else {
@@ -98,9 +100,12 @@ const Codec = {
   },
 
   /* frame rate of the clip in the editor: a 29.97 recording can only give 29.97 (the encoder never
-     up-converts), so the choice is pinned there; 59.94 sources (or no clip) offer 59.94 / 29.97 */
-  setSourceFps(fps) {
+     up-converts), so the choice is pinned there; 59.94 sources (or no clip) offer 59.94 / 29.97.
+     An interlaced source (fps = its field rate) is always deinterlaced: the filter is chosen here, and
+     the frame rate picks the mode (59.94 = 1, one frame per field; 29.97 = 0, one per frame). */
+  setSourceFps(fps, interlaced = false) {
     this.srcFps = fps || 0;
+    this.interlaced = interlaced;
     this.lockFps();
   },
   lockFps() {
@@ -108,6 +113,10 @@ const Codec = {
     sel.disabled = locked;
     sel.value = locked ? "30000/1001" : this.cfg.fps;
     $("#fps-note").hidden = !locked;
+    $("#deint-row").hidden = !this.interlaced;
+    const opt = (v) => [...sel.options].find((o) => o.value === v);
+    opt("60000/1001").textContent = this.interlaced ? "59.94 (mode 1)" : "59.94";
+    opt("30000/1001").textContent = this.interlaced ? "29.97 (mode 0)" : "29.97";
   },
 
   syncVisibility() {

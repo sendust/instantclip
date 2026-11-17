@@ -112,7 +112,7 @@
     "spatial_aq": true,
     "resolution": "source",
     "fps": "60000/1001",
-    "deinterlace": "auto",
+    "deinterlace": "bwdif",
     "container": "mp4",
     "faststart": true,
     "acodec": "aac",

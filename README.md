@@ -68,7 +68,7 @@ UI 의 subclip 코덱 설정은 바꾸는 즉시 이 파일에 저장된다. 나
 | `live` | WebRTC 모니터용 인코딩 |
 | `editor` | 화살표 키 seek 시간(초): `seek_lr` ←/→ (기본 10), `seek_ud` ↓/↑ (기본 60). 버튼 표시도 이 값을 따름. scene 검출 기본값 `scene_range` (±초, 5), `scene_threshold` (0.3). 프록시 없는 TS 를 브라우저에서 디코딩 `browser_decode` (true), 그 화질 `ts_quality` (`full` / `half` / `quarter`, 기본 full — half 이하는 MPEG-2 lowres 디코딩이라 작은 자막이 깍두기로 뭉개진다), 디코딩 워커 수 `ts_workers` (0 = 자동, CPU 코어 − 2, 2~4) |
 | `thumbnail` | 썸네일 간격/크기 |
-| `subclip` | subclip 코덱 (h264_nvenc / hevc_nvenc / libx264, preset, rc, bitrate, GOP, faststart, 오디오, gain), `name_template`, 동시 인코딩 수 `workers`(UI 에서 변경, 즉시 적용), 인터레이스 원본 디인터레이스 `deinterlace` (`auto` / `off`) |
+| `subclip` | subclip 코덱 (h264_nvenc / hevc_nvenc / libx264, preset, rc, bitrate, GOP, faststart, 오디오, gain), `name_template`, 동시 인코딩 수 `workers`(UI 에서 변경, 즉시 적용), 인터레이스 원본 디인터레이스 필터 `deinterlace` (`bwdif` / `yadif`, UI 에서 변경 — 인터레이스 원본을 열면 코덱 창에 나타남) |
 | `mediamtx` | RTSP 주소, WebRTC 주소/포트 (`webrtc_url` 이 비어 있으면 `브라우저 host:webrtc_port`) |
 | `log` | 로그 경로/레벨/회전 |
 
@@ -173,8 +173,8 @@ ln -s /mnt/tvheadend /mnt/raid0_old/capture/tvheadend
     연속 디코딩 워커 4개 Half 258 fps / Full 197 fps.
     썸네일은 없다. 브라우저에 WebGL2 가 필요하다.
   - 29.97 이 아닌 TS 나 MPEG-2 가 아닌 파일은 지금처럼 프록시를 만들어 편집한다.
-- 인코더는 인터레이스 원본(`field_order` tt/bb)을 자동으로 디인터레이스한다: 59.94 설정이면 bwdif `mode=1`(필드마다 한 프레임, 1080p59.94),
-  29.97 이면 `mode=0`. 그래서 1080i 원본도 코덱 설정에서 59.94 / 29.97 을 고를 수 있다.
+- 인코더는 인터레이스 원본(`field_order` tt/bb)을 항상 디인터레이스한다. 필터는 코덱 창에서 bwdif / yadif 중 고르고(NVENC 면 `_cuda` 판),
+  프레임레이트가 mode 를 정한다: 59.94 = `mode=1`(필드마다 한 프레임, 1080p59.94), 29.97 = `mode=0`(프레임마다 한 프레임).
   59.94 로 만들 때 마지막 프레임의 두 필드 사이에 컷이 있으면(편집기에는 안 보이는 다음 장면 한 필드) 그 필드를 뺀다.
 - HEVC NVENC 가 B-frame 을 지원하지 않는 GPU(Quadro P2200 등 Pascal)는 처음 인코딩할 때 감지해서 `-bf 0` 으로 인코딩한다.
 

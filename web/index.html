@@ -203,6 +203,9 @@
       <label>프레임레이트<select name="fps">
         <option value="60000/1001">59.94</option><option value="30000/1001">29.97</option></select>
         <small id="fps-note" class="muted" hidden>29.97 녹화 원본 — 29.97 고정</small></label>
+      <label id="deint-row" hidden>디인터레이스<select name="deinterlace">
+        <option value="bwdif">bwdif</option><option value="yadif">yadif</option></select>
+        <small class="muted">1080i 원본 — 항상 적용</small></label>
       <label>컨테이너<select name="container"><option>mp4</option><option>mov</option><option>mkv</option><option>ts</option></select></label>
       <label class="check"><input type="checkbox" name="faststart"> faststart (moov 앞으로)</label>
       <label>동시 인코딩 수<select name="workers">

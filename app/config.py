@@ -43,7 +43,7 @@ DEFAULTS = {
     "subclip": {
         "vcodec": "h264_nvenc", "preset": "p5", "tune": "hq", "profile": "high", "rc": "vbr",
         "bitrate": "20M", "maxrate": "25M", "bufsize": "40M", "cq": 23, "gop": 60, "bframes": 2,
-        "spatial_aq": True, "resolution": "source", "fps": "source", "deinterlace": "auto", "container": "mp4",
+        "spatial_aq": True, "resolution": "source", "fps": "source", "deinterlace": "bwdif", "container": "mp4",
         "faststart": True, "acodec": "aac", "abitrate": "192k", "audio_gain": 1.0,
         "name_template": "{src}_[{n:03d}]_{start:.2f}_{end:.2f}_{dur:.2f}", "workers": 1,
     },

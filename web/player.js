@@ -116,7 +116,7 @@ const Player = {
     const vs = (info.hires?.streams || []).find((s) => s.codec_type === "video");
     // an interlaced (1080i) source deinterlaces to one frame per field, so it offers 59.94 too
     const fields = vs && ["tt", "bb", "tb", "bt"].includes(vs.field_order) ? 2 : 1;
-    Codec.setSourceFps(vs ? rate(vs.r_frame_rate) * fields : 0);
+    Codec.setSourceFps(vs ? rate(vs.r_frame_rate) * fields : 0, fields === 2);
     this.restoreMarks();
     this.queued = false;
     $("#ed-title").textContent = info.path;

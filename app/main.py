@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .config import ROOT, Config
-from .encoder import Encoder
+from .encoder import DEINTERLACERS, Encoder
 from .logger import setup_logging
 from .media import ROOTS, Media, MediaError
 from .recorder import Recorder
@@ -47,7 +47,7 @@ COMMIT_TIME = _commit_time()
 # subclip settings the UI may write (anything else in the section is file-only)
 SUBCLIP_KEYS = {"vcodec", "preset", "tune", "profile", "rc", "bitrate", "maxrate", "bufsize", "cq",
                 "gop", "bframes", "spatial_aq", "resolution", "fps", "container", "faststart",
-                "acodec", "abitrate", "audio_gain", "workers"}
+                "acodec", "abitrate", "audio_gain", "workers", "deinterlace"}
 
 
 @contextlib.asynccontextmanager
@@ -105,6 +105,8 @@ async def put_subclip(values: dict):
         values["audio_gain"] = max(0.0, min(10.0, float(values["audio_gain"])))
     if "workers" in values:
         values["workers"] = max(1, min(8, int(values["workers"])))
+    if "deinterlace" in values and values["deinterlace"] not in DEINTERLACERS:
+        raise HTTPException(400, f"deinterlace: one of {DEINTERLACERS}")
     for k in ("gop", "bframes", "cq"):
         if k in values:
             values[k] = int(values[k])

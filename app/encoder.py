@@ -40,6 +40,14 @@ def rate(r) -> float:
         return 0.0
 
 
+DEINTERLACERS = ("bwdif", "yadif")   # subclip "deinterlace": the filter for an interlaced source (CUDA twin with NVENC)
+
+
+def deinterlacer(sc: dict) -> str:
+    """configured filter; older configs ("auto" / "off") get bwdif: an interlaced source is always deinterlaced"""
+    return sc.get("deinterlace") if sc.get("deinterlace") in DEINTERLACERS else "bwdif"
+
+
 def per_field(fps: str, src_fps: float) -> bool:
     """Interlaced source: deinterlace to one frame per field (59.94p from 1080i) unless a lower rate is set."""
     return fps == "source" or rate(fps) > src_fps + 0.01
@@ -234,9 +242,9 @@ class Encoder:
         sc = self.cfg.section("subclip")
         fps = sc.get("fps", "source")
         deint = None
-        if interlaced and sc.get("deinterlace", "auto") != "off" and src_fps:
-            # 1080i: one frame per field (59.94p) unless 29.97 is asked for, then one per frame
-            # (keeping the first field). From here on the source counts as that progressive rate.
+        if interlaced and src_fps:
+            # 1080i: one frame per field (mode=1, 59.94p) unless 29.97 is asked for, then one per frame
+            # (mode=0, keeping the first field). From here on the source counts as that progressive rate.
             field = per_field(fps, src_fps)
             deint = f"mode={1 if field else 0}:deint=interlaced"
             src_fps = src_fps * 2 if field else src_fps
@@ -260,7 +268,7 @@ class Encoder:
 
         vf = [f"trim=start={rel(t0) - half:.6f}:end={rel(t1) - half:.6f}", "setpts=PTS-STARTPTS"]
         if deint:   # before trim: the deinterlacer needs the neighbouring frames, the pre-roll has them
-            vf.insert(0, ("bwdif_cuda=" if nv else "bwdif=") + deint)
+            vf.insert(0, deinterlacer(sc) + ("_cuda=" if nv else "=") + deint)
         # never up-convert: a 29.97 recording gives a 29.97 subclip whatever the setting says
         if fps != "source" and not (src_fps and rate(fps) > src_fps + 0.01):
             vf.append(f"fps={fps}")
@@ -312,6 +320,8 @@ class Encoder:
         fmt = CONTAINER_FMT.get(sc["container"], "mp4")
         if fmt in ("mp4", "mov") and sc.get("faststart"):
             a += ["-movflags", "+faststart"]
+        if fmt in ("mp4", "mov") and "hevc" in codec:
+            a += ["-tag:v", "hvc1"]   # ffmpeg writes hev1; Safari, QuickTime and some browsers only play hvc1
         a += ["-f", fmt, str(out)]
         return a
 
@@ -369,8 +379,7 @@ class Encoder:
         t0, t1 = self.source_pts(job.tin, start, timing), self.source_pts(job.tout, start, timing)
         t0 = await self.in_after_field_cut(src, t0, start, rate(v.get("r_frame_rate")))
         sc = self.cfg.section("subclip")
-        if is_interlaced(v) and sc.get("deinterlace", "auto") != "off" and \
-                per_field(sc.get("fps", "source"), rate(v.get("r_frame_rate"))):
+        if is_interlaced(v) and per_field(sc.get("fps", "source"), rate(v.get("r_frame_rate"))):
             t1 = await self.out_before_field_cut(src, t1, start, rate(v.get("r_frame_rate")))
         job.proc = FFmpegProcess(f"subclip:{job.id}", self.build_args(
             src, out, t0, t1, rate(v.get("r_frame_rate")), start, any(s.get("codec_type") == "audio" for s in streams),
