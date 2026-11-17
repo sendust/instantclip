@@ -392,6 +392,7 @@ const Player = {
         this.queued = false;
         this.markIn = this.markOut = null; this.saveMarks(); return this.render();
       case "queue": return this.queue();
+      case "scenes": return Scenes.run();
     }
   },
 
@@ -408,6 +409,7 @@ const Player = {
       ArrowDown: "ud-", ArrowUp: "ud+",
       KeyJ: "back05", KeyL: "fwd05",
       Comma: "frame-", Period: "frame+",
+      Slash: "scenes", NumpadDivide: "scenes",
     };
     // 1-9: the n-th cut of the scene detection strip, only while it is open; Shift: the frame before it
     // (the last frame of the old shot, to find an out point)
@@ -418,10 +420,10 @@ const Player = {
       return Scenes.jump(Number(digit[2]), e.shiftKey ? -1 : 0);
     }
     const a = map[e.code];
-    if (!a || (ctrl && !["KeyI", "KeyO"].includes(e.code))) return;
+    if (!a || (ctrl && !["KeyI", "KeyO"].includes(e.code)) || (a === "scenes" && e.shiftKey)) return;
     e.preventDefault();
     e.stopPropagation();
-    if (e.repeat && ["queue", "play", "mark-in", "mark-out"].includes(a)) return;
+    if (e.repeat && ["queue", "play", "mark-in", "mark-out", "scenes"].includes(a)) return;
     this.act(a);
   },
 
