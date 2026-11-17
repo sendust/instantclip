@@ -32,6 +32,7 @@ class TsMedia extends EventTarget {
     this.paused = true;
     this.stalled = false;
     this.t = 0;                   // position while paused / stalled
+    this.misses = 0;              // GOP lookups failed in a row
     this.cache = new Map();       // GOP first frame -> {status, g, bytes, used, abuf}
     this.keys = new Map();        // GOP first frame -> I-frame preview
     this.shown = null;            // {frame, exact}
@@ -205,8 +206,16 @@ class TsMedia extends EventTarget {
       this.again = false;
       const s = this.seekWanted, pos = this.frameAt(this.currentTime);
       this.seekWanted = false;
-      try { await this.fill(pos, s, () => this.again || seq !== this.seq); }
-      catch (e) { if (seq === this.seq) this.fail(e); }
+      try {
+        await this.fill(pos, s, () => this.again || seq !== this.seq);
+        this.misses = 0;
+      } catch (e) {
+        // a lookup can fail for a moment (share busy...): try again, report only when it keeps failing
+        if (seq !== this.seq) break;
+        if (++this.misses >= 3) this.fail(e);
+        else console.warn("ts: retrying", e.message);
+        setTimeout(() => { if (seq === this.seq) this.want(s); }, 1000 * Math.min(this.misses, 10));
+      }
     }
     if (seq === this.seq) this.wanting = false;
     this.evict();

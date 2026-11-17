@@ -164,6 +164,10 @@ ln -s /mnt/tvheadend /mnt/raid0_old/capture/tvheadend
   - 서버(`app/tsindex.py`)는 파일 앞 4 MB 와 끝 2 MB 만 읽어 PAT/PMT, 첫 I-프레임(= 프레임 0), 프레임 수를 알아내고,
     프레임 번호를 주면 그 GOP 의 바이트 범위를 보간 탐색(작은 읽기 몇 번, 평균 0.1~0.2 초)으로 찾는다. 파일 전체를 훑지 않는다.
     B-frame / open GOP 도 처리한다 (GOP 범위 = 그 I-프레임부터 다음 I-프레임 뒤 B-frame 까지).
+    보간이 제자리걸음하면(큰 I-프레임 안에 떨어진 경우 등) 이분 탐색으로 바꾼다.
+  - 수신 불량(off-air) 대비: 동기 바이트를 잃으면 다시 찾고, transport_error_indicator 패킷은 버리고, PTS 마커 비트가
+    틀린 헤더는 무시하고, 주변 I-프레임과 맞지 않는 PTS 의 그림은 버린다. 디코더는 깨진 패킷/프레임을 건너뛰고(은닉),
+    오디오가 깨진 GOP 는 소리 없이 영상만 재생한다. GOP 탐색이 실패하면 브라우저가 1·2초 뒤 다시 시도한다.
   - 브라우저 워커(`web/tsworker.js`, 여러 개)가 그 범위를 HTTP Range 로 원본에서 받아 TS 를 풀고, MPEG-2 비디오(기본 Full, Half 는 lowres 1)와
     첫 번째 오디오 스트림(AC-3 → 48 kHz 스테레오)을 디코딩한다. 오디오는 프레임 0 기준 샘플 격자로 잘라 GOP 끼리 빈틈 없이 이어진다.
   - 인터레이스 프레임은 첫 필드를 보여준다(WebGL bob). 편집기 프레임 k = 원본의 k 번째 표시 프레임이라
@@ -178,7 +182,9 @@ ln -s /mnt/tvheadend /mnt/raid0_old/capture/tvheadend
 - 인코더는 인터레이스 원본(`field_order` tt/bb)을 항상 디인터레이스한다. 필터는 코덱 창에서 bwdif / yadif 중 고르고(NVENC 면 `_cuda` 판),
   프레임레이트가 mode 를 정한다: 59.94 = `mode=1`(필드마다 한 프레임, 1080p59.94), 29.97 = `mode=0`(프레임마다 한 프레임).
   59.94 로 만들 때 마지막 프레임의 두 필드 사이에 컷이 있으면(편집기에는 안 보이는 다음 장면 한 필드) 그 필드를 뺀다.
-- HEVC NVENC 가 B-frame 을 지원하지 않는 GPU(Quadro P2200 등 Pascal)는 처음 인코딩할 때 감지해서 `-bf 0` 으로 인코딩한다.
+- HEVC NVENC 가 B-frame 을 지원하지 않는 GPU(Quadro P2200 등 Pascal)는 처음 인코딩할 때 감지해서 `-bf 0` 으로 인코딩한다
+  (같은 GPU 인코더 그대로, CPU 로 바꾸지 않음). 설정한 B-frame 수로는 실패하고 `-bf 0` 으로는 되는 경우만 그렇게 판단하고,
+  둘 다 실패하면(GPU 사용 중 등) 판단을 미루고 설정대로 인코딩한다.
 
 ### 세션 복원 (클라이언트 IP 별)
 

@@ -354,17 +354,27 @@ class Encoder:
         job.finished = time.time()
         self.media.bump()
 
-    async def _check_bframes(self, codec: str):
+    async def _check_bframes(self, codec: str, bframes: int):
         """HEVC NVENC before Turing (e.g. Quadro P2200) has no B-frames and refuses to open with any:
-        found out once per codec with a 3-frame test encode, then encoded with -bf 0."""
-        if codec in self.no_bframes or "nvenc" not in codec:
+        found out once per codec with 3-frame test encodes, then encoded with -bf 0 (on the GPU still,
+        never another encoder). Only a GPU that encodes without B-frames but not with them counts as
+        lacking them; when both tests fail (GPU busy, driver...) nothing is decided and the job runs as set."""
+        if codec in self.no_bframes or "nvenc" not in codec or bframes <= 0:
             return
-        rc, _, _ = await run_capture([self.cfg.section("ffmpeg")["ffmpeg"], "-v", "error", "-f", "lavfi", "-i",
-                                      "testsrc2=s=1280x720", "-frames:v", "3", "-c:v", codec, "-bf", "2",
-                                      "-f", "null", "-"], timeout=20)
-        self.no_bframes[codec] = rc != 0
-        if rc != 0:
-            log.info("%s takes no B-frames on this GPU: encoding with -bf 0", codec)
+
+        async def test(bf):
+            rc, _, err = await run_capture([self.cfg.section("ffmpeg")["ffmpeg"], "-v", "error", "-f", "lavfi", "-i",
+                                            "testsrc2=s=1280x720", "-frames:v", "3", "-c:v", codec, "-bf", str(bf),
+                                            "-f", "null", "-"], timeout=20)
+            return rc == 0, err.strip()[-200:]
+        ok, err = await test(bframes)
+        if ok:
+            self.no_bframes[codec] = False
+        elif (await test(0))[0]:
+            self.no_bframes[codec] = True
+            log.info("%s takes no B-frames on this GPU: encoding with -bf 0 (%s)", codec, err)
+        else:
+            log.warning("%s test encode failed with and without B-frames, left undecided: %s", codec, err)
 
     async def _run(self, job: Job):
         src = self.media.resolve("capture", job.source)
@@ -375,7 +385,7 @@ class Encoder:
         v = next((s for s in streams if s.get("codec_type") == "video"), {})
         start = info.get("start_time", 0.0)
         timing = await self.media.proxy_timing(job.source)
-        await self._check_bframes(self.cfg.section("subclip")["vcodec"])
+        await self._check_bframes(self.cfg.section("subclip")["vcodec"], int(self.cfg.section("subclip").get("bframes", 2)))
         t0, t1 = self.source_pts(job.tin, start, timing), self.source_pts(job.tout, start, timing)
         t0 = await self.in_after_field_cut(src, t0, start, rate(v.get("r_frame_rate")))
         sc = self.cfg.section("subclip")

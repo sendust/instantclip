@@ -59,20 +59,32 @@ function pts(b, i) {
   return ((b[i] >> 1) & 7) * 2 ** 30 + (b[i + 1] << 22) + ((b[i + 2] >> 1) << 15) + (b[i + 3] << 7) + (b[i + 4] >> 1);
 }
 
-/* PES payloads of one PID: [{pos, pts, data: [Uint8Array...]}] in stream order (pos = byte in b) */
+/* next packet start at or after i: sync bytes 188 apart; b.length if none */
+function sync(b, i) {
+  for (; i + PKT < b.length; i++) if (b[i] === 0x47 && b[i + PKT] === 0x47) return i;
+  return b.length;
+}
+
+/* marker bits of a PES pts field: a damaged header that slipped through as error-free fails them */
+const ptsOk = (b, i) => (b[i] >> 4 === 2 || b[i] >> 4 === 3) && (b[i] & b[i + 2] & b[i + 4] & 1) === 1;
+
+/* PES payloads of one PID: [{pos, pts, data: [Uint8Array...]}] in stream order (pos = byte in b).
+ * Off-air recordings have reception errors: the packet grid is found again after lost sync bytes, packets
+ * flagged with transport_error_indicator are left out (the decoder conceals what is missing), and a pts
+ * whose marker bits are wrong counts as none. */
 function demux(b, pid) {
-  let o = 0;
-  while (o < PKT && !(b[o] === 0x47 && b[o + PKT] === 0x47)) o++;
   const out = [];
   let cur = null;
-  for (let p = o; p + PKT <= b.length; p += PKT) {
-    if (b[p] !== 0x47 || (((b[p + 1] & 0x1f) << 8) | b[p + 2]) !== pid) continue;
+  for (let p = sync(b, 0); p + PKT <= b.length; p += PKT) {
+    if (b[p] !== 0x47) { p = sync(b, p + 1) - PKT; continue; }
+    if (b[p + 1] & 0x80 || (((b[p + 1] & 0x1f) << 8) | b[p + 2]) !== pid) continue;
     const afc = (b[p + 3] >> 4) & 3;
     if (!(afc & 1)) continue;
     let q = afc & 2 ? p + 5 + b[p + 4] : p + 4;
+    if (q >= p + PKT) continue;            // damaged adaptation field length
     if (b[p + 1] & 0x40) {
-      if (b[q] !== 0 || b[q + 1] !== 0 || b[q + 2] !== 1) { cur = null; continue; }
-      cur = { pos: p, pts: b[q + 7] & 0x80 ? pts(b, q + 9) : null, data: [] };
+      if (q + 14 > p + PKT || b[q] !== 0 || b[q + 1] !== 0 || b[q + 2] !== 1) { cur = null; continue; }
+      cur = { pos: p, pts: b[q + 7] & 0x80 && ptsOk(b, q + 9) ? pts(b, q + 9) : null, data: [] };
       out.push(cur);
       q += 9 + b[q + 8];
     }
@@ -131,8 +143,12 @@ async function decodeJob(m) {
   const inRange = (a, b) => (p) => p.pos + base >= a && p.pos + base < b;
   let pes = demux(buf, m.pid).filter(inRange(m.start, m.end));
   if (!pes.length || pes[0].pts !== m.pts) throw new NetError("GOP 가 I-프레임으로 시작하지 않습니다");
-  // drop the I-frame's leading B-frames (displayed before it)
-  pes = pes.filter((p, i) => i === 0 || p.pts === null || (p.pts - m.pts + WRAP) % WRAP < WRAP / 2);
+  // drop the I-frame's leading B-frames (displayed before it): the run of pictures right after it up to
+  // the first that displays after it; one whose pts was damaged (null) goes with the run it sits in
+  const after = (p) => p.pts !== null && (p.pts - m.pts + WRAP) % WRAP < WRAP / 2;
+  let lead = 1;
+  while (lead < pes.length && !after(pes[lead])) lead++;
+  pes = [pes[0], ...pes.slice(lead).filter((p) => p.pts === null || after(p))];
   if (m.keyOnly) pes = pes.slice(0, 1);
   const L = m.lowres | 0;
   const v = run("mpeg2video", L, pes, m.keyOnly ? 1 : m.frames);
@@ -141,7 +157,9 @@ async function decodeJob(m) {
   const frameSize = w * h + 2 * cw * ch;
   const t2 = performance.now();
 
-  const pcm = audio ? decodeAudio(demux(buf, m.apid).filter(inRange(m.astart, m.aend)), m) : null;
+  let pcm = null;
+  try { pcm = audio ? decodeAudio(demux(buf, m.apid).filter(inRange(m.astart, m.aend)), m) : null; }
+  catch (err) { console.warn("ts audio", m.frame, err.message); M = null; }   // damaged audio: the GOP plays silent
   const t3 = performance.now();
 
   self.postMessage({

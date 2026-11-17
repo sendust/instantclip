@@ -7,6 +7,10 @@
  * Video: up to max frames in display order, packed yuv420p (w*h luma, then the two chroma planes); n = frames.
  * Audio: all of it as interleaved stereo float at 48 kHz; n = samples per channel.
  * A decoder is reused across chunks (flushed in between), so nothing is allocated per chunk once warm.
+ *
+ * Off-air streams are damaged now and then: undecodable packets and frames are skipped (the decoder
+ * conceals what it can), audio that changes layout mid-chunk (5.1 <-> 2.0 at a programme boundary) gets a
+ * new resampler, and video frames of another size than the chunk's first are left out.
  */
 #include <limits.h>
 #include <stdlib.h>
@@ -22,6 +26,8 @@ typedef struct {
   AVPacket *pkt;
   AVFrame *f;
   SwrContext *swr;
+  AVChannelLayout in_layout;           // what swr was set up for
+  int in_fmt, in_rate;
   uint8_t *out;
   size_t cap, len;
   int count, max, w, h;
@@ -42,6 +48,7 @@ static int take_video(Dec *d, const AVFrame *f) {
   if (d->count >= d->max) return 0;
   if (f->format != AV_PIX_FMT_YUV420P) return AVERROR_PATCHWELCOME;
   int w = f->width, h = f->height, cw = (w + 1) >> 1, ch = (h + 1) >> 1;
+  if (d->count && (w != d->w || h != d->h)) return 0;   // the packed output holds one frame size
   int r = grow(d, (size_t)w * h + 2 * (size_t)cw * ch);
   if (r < 0) return r;
   for (int i = 0; i < 3; i++) {
@@ -54,11 +61,23 @@ static int take_video(Dec *d, const AVFrame *f) {
   return 0;
 }
 
+/* f NULL: what the resampler still holds */
 static int take_audio(Dec *d, const AVFrame *f) {
+  if (f && d->swr && (f->format != d->in_fmt || f->sample_rate != d->in_rate ||
+                      av_channel_layout_compare(&f->ch_layout, &d->in_layout))) {
+    int r = take_audio(d, NULL);      // input changed: drain, then a resampler for the new one
+    swr_free(&d->swr);
+    if (r < 0) return r;
+  }
   if (!d->swr) {
+    if (!f) return 0;
     AVChannelLayout stereo = AV_CHANNEL_LAYOUT_STEREO;
     int r = swr_alloc_set_opts2(&d->swr, &stereo, AV_SAMPLE_FMT_FLT, 48000, &f->ch_layout, f->format, f->sample_rate, 0, NULL);
     if (r < 0 || (r = swr_init(d->swr)) < 0) return r;
+    av_channel_layout_uninit(&d->in_layout);
+    av_channel_layout_copy(&d->in_layout, &f->ch_layout);
+    d->in_fmt = f->format;
+    d->in_rate = f->sample_rate;
   }
   int n = swr_get_out_samples(d->swr, f ? f->nb_samples : 0), r = grow(d, (size_t)n * 8);
   if (r < 0) return r;
@@ -72,7 +91,10 @@ static int take_audio(Dec *d, const AVFrame *f) {
 
 static int drain(Dec *d) {
   int r;
-  while ((r = avcodec_receive_frame(d->c, d->f)) >= 0) {
+  int bad = 0;
+  while ((r = avcodec_receive_frame(d->c, d->f)) >= 0 || (r != AVERROR(EAGAIN) && r != AVERROR_EOF &&
+                                                          r != AVERROR(ENOMEM) && ++bad < 1000)) {
+    if (r < 0) continue;                // a frame it could not decode: on to the next
     r = d->c->codec_type == AVMEDIA_TYPE_VIDEO ? take_video(d, d->f) : take_audio(d, d->f);
     av_frame_unref(d->f);
     if (r < 0) return r;
@@ -80,14 +102,15 @@ static int drain(Dec *d) {
   return r == AVERROR(EAGAIN) || r == AVERROR_EOF ? 0 : r;
 }
 
-/* one packet, or the end of the stream (data NULL); damaged packets are skipped like ffmpeg does */
+/* one packet, or the end of the stream (data NULL); a damaged packet is skipped like ffmpeg does, whatever
+   the decoder calls it (the AC-3 decoder has its own codes, e.g. AC3_PARSE_ERROR_SYNC -0x1030c0a) */
 static int send(Dec *d, uint8_t *data, int size) {
   int r;
   d->pkt->data = data;
   d->pkt->size = size;
   while ((r = avcodec_send_packet(d->c, data ? d->pkt : NULL)) == AVERROR(EAGAIN))
     if ((r = drain(d)) < 0) return r;
-  if (r < 0 && r != AVERROR_INVALIDDATA && r != AVERROR_EOF) return r;
+  if (r == AVERROR(ENOMEM)) return r;
   return drain(d);
 }
 
@@ -145,6 +168,7 @@ EMSCRIPTEN_KEEPALIVE void dec_close(Dec *d) {
   if (!d) return;
   av_parser_close(d->p);
   swr_free(&d->swr);
+  av_channel_layout_uninit(&d->in_layout);
   avcodec_free_context(&d->c);
   av_packet_free(&d->pkt);
   av_frame_free(&d->f);
