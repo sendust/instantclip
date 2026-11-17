@@ -6,3 +6,4 @@ state.json
 sessions.json
 config.json
 wasm/build/
+probe_cache.json

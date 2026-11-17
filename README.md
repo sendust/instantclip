@@ -158,7 +158,7 @@ mark in 프레임은 subclip 에 포함되고 mark out 프레임은 포함되지
 ln -s /mnt/tvheadend /mnt/raid0_old/capture/tvheadend
 ```
 - 링크로 연결한 폴더는 읽기 전용이다 (UI 에서 이름변경/이동/삭제/폴더 생성 거부 — 원본 보호).
-- 처음 여는 폴더의 길이(duration)는 백그라운드 ffprobe 가 끝나면 채워진다 (CIFS 의 tvheadend 776개 약 1분 반, 서버 재시작 전까지 기억).
+- 처음 여는 폴더의 길이(duration)는 백그라운드 ffprobe 가 끝나면 채워진다 — 목록용은 가벼운 ffprobe(`-probesize 1M`, TS 한 개에 2~4 MB 읽음, 전체 분석은 13 MB 정도)로 하고, 결과는 `probe_cache.json` 에 저장해 재시작 후에도 다시 읽지 않는다 (파일 크기·수정시각이 바뀐 것만 다시 읽음).
 - 프록시가 없는 MPEG-2 TS(목록의 `TS` 표시)는 프록시를 만들지 않고 **브라우저가 원본을 직접 디코딩**한다
   (`web/tsplayer.js`, wasm 디코더 — [XDCAM50_MXF_webplayer](https://github.com/sendust/XDCAM50_MXF_webplayer) 방식):
   - 서버(`app/tsindex.py`)는 파일 앞 4 MB 와 끝 2 MB 만 읽어 PAT/PMT, 첫 I-프레임(= 프레임 0), 프레임 수를 알아내고,

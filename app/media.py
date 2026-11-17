@@ -156,7 +156,7 @@ class Media:
 
             async def one(p):
                 async with sem:
-                    await probe(ffprobe, p)
+                    await probe(ffprobe, p, light=True)
             try:
                 await asyncio.gather(*(one(p) for p in paths))
             finally:

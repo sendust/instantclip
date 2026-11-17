@@ -4,6 +4,7 @@
  * the threshold, i.e. the first frame of a new shot. Clicking a cut parks the playhead on it:
  * I there = the new shot starts the subclip, O there = the subclip ends on the last frame of the old shot.
  * The threshold only filters what was fetched, so changing it redraws without re-analysing.
+ * While the strip is open, keys 1-9 jump to the first nine cuts (numbered on the strip).
  */
 const Scenes = {
   data: null,      // {path, from, to, frames: [[k, score]...]}
@@ -93,6 +94,14 @@ const Scenes = {
     Player.box.focus({ preventScroll: true });
   },
 
+  /* key n (1-9): park on the n-th cut, like clicking it */
+  jump(n) {
+    const k = this.cuts()[n - 1];
+    if (k == null) return toast(`컷 ${n}번이 없습니다 (컷 ${this.cuts().length}개)`, true);
+    Player.v.pause();
+    Player.seek((k + 0.5) * FRAME);
+  },
+
   hover(e) {
     if (!this.data) return;
     const { k, cut } = this.pick(e);
@@ -161,5 +170,12 @@ const Scenes = {
       g.fillStyle = k === this.hot ? "#fff" : col("--accent", "#3d9df3");
       g.fillRect((k - d.from) * slot, 0, Math.max(2, slot - 1), base);
     }
+    // key numbers of the first nine cuts, at the top right of each line
+    g.font = "bold 11px monospace";
+    g.textBaseline = "top";
+    cuts.slice(0, 9).forEach((k, i) => {
+      g.fillStyle = k === this.hot ? "#fff" : col("--accent", "#3d9df3");
+      g.fillText(String(i + 1), (k - d.from) * slot + Math.max(2, slot - 1) + 2, 2);
+    });
   },
 };

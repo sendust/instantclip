@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from .config import ROOT, Config
 from .encoder import DEINTERLACERS, Encoder
+from .ffutil import load_probe_cache, save_probe_cache
 from .logger import setup_logging
 from .media import ROOTS, Media, MediaError
 from .recorder import Recorder
@@ -50,15 +51,25 @@ SUBCLIP_KEYS = {"vcodec", "preset", "tune", "profile", "rc", "bitrate", "maxrate
                 "acodec", "abitrate", "audio_gain", "workers", "deinterlace"}
 
 
+PROBE_CACHE = ROOT / "probe_cache.json"   # ffprobe summaries of listed files, kept across restarts
+
+
+async def save_probes():
+    while True:
+        await asyncio.sleep(60)
+        await asyncio.to_thread(save_probe_cache, PROBE_CACHE)
+
+
 @contextlib.asynccontextmanager
 async def lifespan(app):
+    await asyncio.to_thread(load_probe_cache, PROBE_CACHE)
     media.ensure_dirs()
     media.close_stale_playlists()
     await recorder.refresh_devices()
     log.info("decklink devices: %s", recorder.devices)
     encoder.start()
     tasks = [asyncio.create_task(sysmon.run()), asyncio.create_task(recorder.watchdog()),
-             asyncio.create_task(sessions.run())]
+             asyncio.create_task(sessions.run()), asyncio.create_task(save_probes())]
     log.info("instantclip ready on port %s", cfg.section("http")["port"])
     yield
     log.info("shutting down")
@@ -67,6 +78,7 @@ async def lifespan(app):
     await recorder.stop_all()
     await encoder.stop_all()
     await media.stop_all()
+    await asyncio.to_thread(save_probe_cache, PROBE_CACHE)
 
 
 app = FastAPI(title="instantclip", lifespan=lifespan)

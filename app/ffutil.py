@@ -174,20 +174,29 @@ def ppid_of(pid: int) -> int:
         return 0
 
 
+# (path, size, mtime) -> probe summary; a "light" one (file listings) only serves listings.
+# Kept on disk (save_probe_cache) so a restart does not probe whole shares again: ffprobe reads about
+# 13 MB of a broadcast TS, 776 files on a CIFS share take a 1 Gbit/s link for a minute and a half.
 _probe_cache: dict[tuple, dict] = {}
+_probe_dirty = False
+PROBE_CACHE_MAX = 20000
+LIGHT_PROBE = ["-probesize", "1000000", "-analyzeduration", "0"]   # 2-4 MB read, same duration/streams
 
 
-async def probe(ffprobe: str, path: Path) -> dict:
-    """Format/stream summary, cached on (path, size, mtime)."""
+async def probe(ffprobe: str, path: Path, light: bool = False) -> dict:
+    """Format/stream summary, cached on (path, size, mtime). light: a quick look for file listings
+    (reads ~1 MB plus the end of the file for the duration); a full probe never takes a light result."""
+    global _probe_dirty
     try:
         st = path.stat()
     except OSError:
         return {}
     key = (str(path), st.st_size, int(st.st_mtime))
-    if key in _probe_cache:
-        return _probe_cache[key]
-    rc, out, _ = await run_capture([ffprobe, "-v", "error", "-print_format", "json", "-show_format",
-                                    "-show_streams", str(path)], timeout=20)
+    hit = _probe_cache.get(key)
+    if hit is not None and (light or not hit.get("light")):
+        return hit
+    rc, out, _ = await run_capture([ffprobe, "-v", "error", *(LIGHT_PROBE if light else []), "-print_format",
+                                    "json", "-show_format", "-show_streams", str(path)], timeout=20)
     info = {}
     if rc == 0:
         try:
@@ -199,10 +208,40 @@ async def probe(ffprobe: str, path: Path) -> dict:
                                 for s in j.get("streams", [])]}
         except (ValueError, TypeError):
             pass
-    if len(_probe_cache) > 20000:
-        _probe_cache.clear()
+    if info and light:
+        info["light"] = True
+    if len(_probe_cache) >= PROBE_CACHE_MAX:   # drop the oldest half
+        for k in list(_probe_cache)[:PROBE_CACHE_MAX // 2]:
+            del _probe_cache[k]
     _probe_cache[key] = info
+    _probe_dirty = _probe_dirty or bool(info)
     return info
+
+
+def load_probe_cache(path: Path):
+    try:
+        for p, size, mtime, info in json.loads(path.read_text()):
+            _probe_cache[(p, size, mtime)] = info
+        log.info("probe cache: %d files", len(_probe_cache))
+    except FileNotFoundError:
+        pass
+    except (OSError, ValueError, TypeError) as e:
+        log.warning("probe cache %s unreadable: %s", path, e)
+
+
+def save_probe_cache(path: Path):
+    """write the cache if anything was probed since the last save (entries of files gone are dropped)"""
+    global _probe_dirty
+    if not _probe_dirty:
+        return
+    _probe_dirty = False
+    rows = [[*k, v] for k, v in list(_probe_cache.items()) if v and os.path.exists(k[0])]
+    tmp = path.with_suffix(".json.tmp")
+    try:
+        tmp.write_text(json.dumps(rows, ensure_ascii=False))
+        os.replace(tmp, path)
+    except OSError as e:
+        log.warning("probe cache %s not saved: %s", path, e)
 
 
 def interlaced(stream: dict) -> bool:
