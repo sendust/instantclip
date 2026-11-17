@@ -519,9 +519,10 @@ const Player = {
     $("#tl-hover-time").textContent = tc(t);
     const img = $("#tl-thumb");
     if (this.clip.thumb) {
-      let n = Math.floor(t / this.clip.thumb.interval) + 1;
-      // while recording, the thumbnail of the last interval or two is not written yet: show the newest one there is
-      if (this.live) n = Math.max(1, Math.min(n, Math.floor(d / this.clip.thumb.interval) - 1));
+      // a thumbnail is written once its interval is complete: the last, partial one has none (and while
+      // recording the newest complete one may not be written yet either), so show the newest one there is
+      const last = Math.floor(d / this.clip.thumb.interval) - (this.live ? 1 : 0);
+      const n = Math.max(1, Math.min(Math.floor(t / this.clip.thumb.interval) + 1, last));
       const src = `${this.clip.thumb.base}${pad(n, 6)}.jpg`;
       if (img.dataset.src !== src) { img.dataset.src = src; img.src = src; }
       img.style.display = "";
