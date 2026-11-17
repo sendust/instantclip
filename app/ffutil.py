@@ -11,6 +11,7 @@ from pathlib import Path
 
 log = logging.getLogger("ffutil")
 
+INTERLACED = ("tt", "bb", "tb", "bt")   # ffprobe field_order of an interlaced stream
 MEDIA_EXTS = {".ts", ".m2ts", ".mts", ".mp4", ".mov", ".mxf", ".mkv", ".m4v", ".avi", ".mpg"}
 
 
@@ -202,6 +203,10 @@ async def probe(ffprobe: str, path: Path) -> dict:
         _probe_cache.clear()
     _probe_cache[key] = info
     return info
+
+
+def interlaced(stream: dict) -> bool:
+    return stream.get("field_order") in INTERLACED
 
 
 def probe_cached(path: Path) -> dict | None:

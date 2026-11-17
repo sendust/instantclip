@@ -5,3 +5,4 @@ __pycache__/
 state.json
 sessions.json
 config.json
+wasm/build/

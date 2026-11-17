@@ -18,7 +18,7 @@ from pathlib import Path, PurePosixPath
 
 from .config import ROOT, Config
 from .ffutil import FFmpegProcess, probe, run_capture
-from .liveproxy import interlaced as is_interlaced
+from .ffutil import interlaced as is_interlaced
 from .media import Media, MediaError
 
 log = logging.getLogger("encoder")
@@ -215,9 +215,10 @@ class Encoder:
         """Interlaced source encoded one frame per field: drop the last field when a cut falls inside
         the last frame.
 
-        The (live) proxy of a 1080i clip shows the first field of each frame. A cut between the two
-        fields of the last frame is not visible in the editor (that frame still shows the old shot), but
-        its second field already is the new shot and would end the subclip with a one-field flash.
+        The editor shows the first field of each frame of a 1080i clip (a TS decoded in the browser). A cut
+        between the two fields of the last frame is not visible in the editor (that frame still shows the
+        old shot), but its second field already is the new shot and would end the subclip with a one-field
+        flash.
         """
         h = 0.5 / src_fps
         scores = await self._scores(src, t1 - h, src_start, h, "bwdif=mode=1:deint=interlaced,")

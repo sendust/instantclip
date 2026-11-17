@@ -1,5 +1,6 @@
 "use strict";
-/* 2. 편집제어: proxy HLS player, timeline with thumbnails and marks, keyboard shortcuts.
+/* 2. 편집제어: proxy HLS player (or a TS decoded in the browser, tsplayer.js), timeline with thumbnails
+ * and marks, keyboard shortcuts.
  * Shortcuts listen on the whole 편집제어 panel (#p-edit), so they work while focus is anywhere inside it.
  * Keys are matched by e.code so they also work with the Korean IME active.
  */
@@ -25,7 +26,19 @@ const Player = {
     $('[data-act="ud+"]').textContent = `${n(this.seekUD)}»`;
     $("#help-lr").textContent = this.seekLR;
     $("#help-ud").textContent = this.seekUD;
-    this.v = $("#ed-video");
+    // this.v is the media in use: the <video> (HLS proxy, subclip) or the TS decoder that stands in for it
+    this.video = this.v = $("#ed-video");
+    try {
+      const ed = cfg.editor || {};
+      this.ts = new TsMedia($("#ed-canvas"), {
+        lowres: { full: 0, half: 1, quarter: 2 }[ed.ts_quality] ?? 1,
+        workers: Number(ed.ts_workers) || Math.max(2, Math.min(4, (navigator.hardwareConcurrency || 4) - 2)),
+      });
+    } catch (e) {
+      this.ts = null;   // no WebGL2: TS clips without a proxy cannot play
+      console.warn(e);
+    }
+    const media = this.ts ? [this.video, this.ts] : [this.video];
     this.box = $("#player");
     this.meter = new StereoMeter($("#ed-meter"), true);
     Meters.views.add(this);
@@ -40,16 +53,22 @@ const Player = {
       if (!this.panel.contains(e.relatedTarget)) keys.classList.remove("active");
     });
     this.box.addEventListener("click", () => this.box.focus());
-    this.v.addEventListener("dblclick", () => this.toggle());
-    this.v.addEventListener("play", () => this.syncPlayBtn());
-    this.v.addEventListener("pause", () => this.syncPlayBtn());
-    this.v.addEventListener("loadeddata", () => this.setAudio());
+    this.video.addEventListener("dblclick", () => this.toggle());
+    $("#ed-canvas").addEventListener("dblclick", () => this.toggle());
+    for (const m of media) {
+      m.addEventListener("play", () => this.syncPlayBtn());
+      m.addEventListener("pause", () => this.syncPlayBtn());
+      m.addEventListener("loadeddata", () => this.setAudio());
 
-    // per-IP session on the server: what is loaded, where, playing or not; restored on reload
-    for (const ev of ["play", "pause", "seeked"]) this.v.addEventListener(ev, () => this.saveSession());
-    this.v.addEventListener("timeupdate", () => { if (Date.now() - (this.sessAt || 0) > 2000) this.saveSession(); });
-    this.v.addEventListener("loadedmetadata", () => this.resumeSession());
-    this.v.addEventListener("error", () => { if (this.resume && this.v.getAttribute("src")) this.resume = null; });
+      // per-IP session on the server: what is loaded, where, playing or not; restored on reload
+      for (const ev of ["play", "pause", "seeked"]) m.addEventListener(ev, () => this.saveSession());
+      m.addEventListener("timeupdate", () => { if (Date.now() - (this.sessAt || 0) > 2000) this.saveSession(); });
+      m.addEventListener("loadedmetadata", () => this.resumeSession());
+      m.addEventListener("error", () => {
+        if (this.resume && (m === this.ts || m.getAttribute("src"))) this.resume = null;
+        if (m === this.ts && this.v === m) this.msg(`TS 디코딩 오류: ${m.error?.message || m.error}`);
+      });
+    }
     addEventListener("pagehide", () => this.saveSession(true));
 
     // drag & drop from the media browser
@@ -103,6 +122,7 @@ const Player = {
     $("#ed-title").textContent = info.path;
     this.loadCounter();
     if (!polling) this.saveSession(false, 0);
+    if (info.ts) return this.attachTs(info);
     if (!info.proxy) {
       this.detach();
       // a poll that finds no proxy and no running job means generation failed: don't loop
@@ -214,7 +234,29 @@ const Player = {
     this.render();
   },
 
+  /* a TS with no proxy: decoded in the browser, drawn on the canvas in place of the video */
+  attachTs(info) {
+    this.detach();
+    if (!this.ts) return this.msg("이 브라우저는 WebGL2 가 없어 TS 클립을 재생할 수 없습니다");
+    this.msg(null);
+    $("#ed-drop").hidden = true;
+    this.v = this.ts;
+    this.video.hidden = true;
+    this.ts.canvas.hidden = false;
+    this.setAudio();
+    // an interlaced frame shows its first field (the encoder's field-cut checks assume that)
+    const vs = (info.hires?.streams || []).find((s) => s.codec_type === "video");
+    this.ts.open({ ...info.ts, field: ["bb", "bt"].includes(vs?.field_order) ? 1 : 0 });
+    this.render();
+  },
+
   detach() {
+    if (this.v === this.ts) {
+      this.ts.close();
+      this.v = this.video;
+      this.ts.canvas.hidden = true;
+      this.video.hidden = false;
+    }
     if (this.hls) { this.hls.destroy(); this.hls = null; }
     this.v.removeAttribute("src");
     this.v.load();
@@ -237,16 +279,19 @@ const Player = {
   },
 
   /* ---------- audio (Web Audio so the meter can read it) ---------- */
+  /* both sources (video element, TS decoder) feed one mix: meters, then volume */
   setAudio() {
-    if (this.audio) return;
     const ctx = AudioMgr.get();
-    const src = ctx.createMediaElementSource(this.v);
-    const out = ctx.createGain();
-    src.connect(out).connect(ctx.destination);
-    const a = buildAnalysers(ctx, src);
-    this.meter.attach(a.analysers);
-    this.audio = { src, out };
-    this.applyVol();
+    if (!this.audio) {
+      const mix = ctx.createGain(), out = ctx.createGain();
+      mix.connect(out).connect(ctx.destination);
+      this.meter.attach(buildAnalysers(ctx, mix).analysers);
+      this.audio = { mix, out };
+      this.applyVol();
+    }
+    const a = this.audio;
+    if (this.v === this.video && !a.src) (a.src = ctx.createMediaElementSource(this.video)).connect(a.mix);
+    if (this.v === this.ts && !a.ts) (a.ts = this.ts.output(ctx)).connect(a.mix);
   },
   applyVol() {
     const vol = this.muted ? 0 : parseFloat($("#ed-vol").value);

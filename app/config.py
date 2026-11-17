@@ -38,7 +38,7 @@ DEFAULTS = {
     "live": {"width": 640, "height": 360, "bitrate": "1500k", "gop": 30, "abitrate": "128k"},
     # arrow-key seek seconds (←/→, ↓/↑); scene detection defaults: ± seconds around the playhead, threshold 0..1
     "editor": {"seek_lr": 10, "seek_ud": 60, "scene_range": 5, "scene_threshold": 0.3,
-               "live_proxy": True, "live_cache_gb": 20},
+               "browser_decode": True, "ts_quality": "half", "ts_workers": 0},
     "thumbnail": {"interval": 2, "width": 160, "height": 90, "quality": 5},
     "subclip": {
         "vcodec": "h264_nvenc", "preset": "p5", "tune": "hq", "profile": "high", "rc": "vbr",

@@ -95,6 +95,7 @@
     <div class="editor">
       <div id="player" class="player" tabindex="0" title="클릭하여 단축키 활성화">
         <video id="ed-video" playsinline preload="auto"></video>
+        <canvas id="ed-canvas" hidden></canvas>
         <div id="ed-drop" class="drop-hint">미디어 브라우저에서 클립을 끌어다 놓으세요</div>
         <div id="ed-msg" class="video-msg" hidden></div>
         <div id="ed-rec" class="rec-badge" hidden>● REC</div>
@@ -260,6 +261,9 @@
 <script src="/static/util.js"></script>
 <script src="/static/meter.js"></script>
 <script src="/static/record.js"></script>
+<script src="/static/yuv.js"></script>
+<script src="/static/tsdecode.js"></script>
+<script src="/static/tsplayer.js"></script>
 <script src="/static/player.js"></script>
 <script src="/static/scenes.js"></script>
 <script src="/static/codec.js"></script>

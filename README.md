@@ -66,7 +66,7 @@ UI 의 subclip 코덱 설정은 바꾸는 즉시 이 파일에 저장된다. 나
 | `record_hires` | 고해상도 녹화 코덱. 기본 `mpeg2video` 35M CBR (minrate=maxrate=bitrate), GOP 30, B 2, `threads`, `extra_args`(intra_vlc, non_linear_quant, qmin/qmax). `h264_nvenc`/`libx264` 로 바꿀 수도 있음 |
 | `record_proxy` | 저해상도 녹화 코덱 (854x480, 29.97, 4M, HLS segment 길이) |
 | `live` | WebRTC 모니터용 인코딩 |
-| `editor` | 화살표 키 seek 시간(초): `seek_lr` ←/→ (기본 10), `seek_ud` ↓/↑ (기본 60). 버튼 표시도 이 값을 따름. scene 검출 기본값 `scene_range` (±초, 5), `scene_threshold` (0.3). 프록시 없는 클립의 라이브 프록시 `live_proxy` (true), 그 캐시 한도 `live_cache_gb` (20) |
+| `editor` | 화살표 키 seek 시간(초): `seek_lr` ←/→ (기본 10), `seek_ud` ↓/↑ (기본 60). 버튼 표시도 이 값을 따름. scene 검출 기본값 `scene_range` (±초, 5), `scene_threshold` (0.3). 프록시 없는 TS 를 브라우저에서 디코딩 `browser_decode` (true), 그 화질 `ts_quality` (`full` / `half` / `quarter`, 기본 half), 디코딩 워커 수 `ts_workers` (0 = 자동, CPU 코어 − 2, 2~6) |
 | `thumbnail` | 썸네일 간격/크기 |
 | `subclip` | subclip 코덱 (h264_nvenc / hevc_nvenc / libx264, preset, rc, bitrate, GOP, faststart, 오디오, gain), `name_template`, 동시 인코딩 수 `workers`(UI 에서 변경, 즉시 적용), 인터레이스 원본 디인터레이스 `deinterlace` (`auto` / `off`) |
 | `mediamtx` | RTSP 주소, WebRTC 주소/포트 (`webrtc_url` 이 비어 있으면 `브라우저 host:webrtc_port`) |
@@ -149,7 +149,7 @@ mark in 프레임은 subclip 에 포함되고 mark out 프레임은 포함되지
 - 범위·threshold 는 브라우저에 기억되고, 처음 값은 `config.json` `editor.scene_range` / `editor.scene_threshold`.
 - 입력 칸에 숫자를 칠 때는 단축키가 동작하지 않는다.
 
-### 외부 녹화 파일 (tvheadend 등) — 라이브 프록시
+### 외부 녹화 파일 (tvheadend 등) — 브라우저 디코딩
 
 이 시스템이 녹화하지 않은 파일도 녹화 폴더(`paths.record`) 아래에 두거나 **심볼릭 링크**로 연결하면 편집할 수 있다.
 ```
@@ -157,12 +157,22 @@ ln -s /mnt/tvheadend /mnt/raid0_old/capture/tvheadend
 ```
 - 링크로 연결한 폴더는 읽기 전용이다 (UI 에서 이름변경/이동/삭제/폴더 생성 거부 — 원본 보호).
 - 처음 여는 폴더의 길이(duration)는 백그라운드 ffprobe 가 끝나면 채워진다 (CIFS 의 tvheadend 776개 약 1분 반, 서버 재시작 전까지 기억).
-- 프록시가 없는 클립(목록의 `LIVE` 표시)은 미리 프록시를 만들지 않고 **보는 구간만 실시간 변환**한다:
-  재생목록은 파일 길이로 계산하고, 2초(60프레임) 세그먼트를 요청받을 때 NVDEC → bwdif_cuda(1080i) → 854x480 h264_nvenc + 첫 번째 오디오 스트림 → AAC 로 만든다
-  (세그먼트당 약 1초, 다음 2개는 미리 만들어 둠). 브라우저가 MPEG-2 / AC-3 를 재생하지 못해 원본 그대로는 쓸 수 없다.
-  세그먼트는 `<proxy>/.live/` 에 캐시되고 `editor.live_cache_gb` 를 넘으면 오래된 것부터 지운다. 썸네일은 없다.
-- 세그먼트마다 같은 원본 프레임 격자(첫 디코딩 프레임 기준 1/29.97 초)에서 trim 으로 정확히 잘라 이어 붙이므로
-  편집기 프레임 = 원본 프레임이고, scene 검출과 subclip 인코딩도 녹화 클립과 똑같이 프레임 단위로 맞는다.
+- 프록시가 없는 MPEG-2 TS(목록의 `TS` 표시)는 프록시를 만들지 않고 **브라우저가 원본을 직접 디코딩**한다
+  (`web/tsplayer.js`, wasm 디코더 — [XDCAM50_MXF_webplayer](https://github.com/sendust/XDCAM50_MXF_webplayer) 방식):
+  - 서버(`app/tsindex.py`)는 파일 앞 4 MB 와 끝 2 MB 만 읽어 PAT/PMT, 첫 I-프레임(= 프레임 0), 프레임 수를 알아내고,
+    프레임 번호를 주면 그 GOP 의 바이트 범위를 보간 탐색(작은 읽기 몇 번, 평균 0.1~0.2 초)으로 찾는다. 파일 전체를 훑지 않는다.
+    B-frame / open GOP 도 처리한다 (GOP 범위 = 그 I-프레임부터 다음 I-프레임 뒤 B-frame 까지).
+  - 브라우저 워커(`web/tsworker.js`, 여러 개)가 그 범위를 HTTP Range 로 원본에서 받아 TS 를 풀고, MPEG-2 비디오(Half 화질은 lowres 1)와
+    첫 번째 오디오 스트림(AC-3 → 48 kHz 스테레오)을 디코딩한다. 오디오는 프레임 0 기준 샘플 격자로 잘라 GOP 끼리 빈틈 없이 이어진다.
+  - 인터레이스 프레임은 첫 필드를 보여준다(WebGL bob). 편집기 프레임 k = 원본의 k 번째 표시 프레임이라
+    scene 검출(원본에서 첫 필드로 직접 계산)과 subclip 인코딩도 녹화 클립과 똑같이 프레임 단위로 맞는다.
+  - 디코더 `web/vendor/tsdec/tsdec.wasm`(1 MB)은 FFmpeg 7.1.1 의 libavcodec 에서 MPEG-2 / AC-3 / E-AC-3 / MP2 / AAC 디코더만 넣어
+    `wasm/build.sh` 로 빌드한다(emsdk 4.0.10, `wasm/tsdec.c`). 디코더를 GOP 사이에 재사용하고 메모리 누수가 없다
+    (ffmpeg.wasm 명령줄 코어는 실행마다 메모리가 새서 몇 분 재생하면 디코딩이 멈췄다). 결과는 네이티브 ffmpeg 와 비트 단위로 같다.
+  - 측정(서버 CPU, 1080i 15~19 Mbps): 처음 열기 약 0.5 초, 임의 위치 탐색 약 0.25 초(Half) / 0.4 초(Full),
+    연속 디코딩 워커 4개 Half 258 fps / Full 197 fps.
+    썸네일은 없다. 브라우저에 WebGL2 가 필요하다.
+  - 29.97 이 아닌 TS 나 MPEG-2 가 아닌 파일은 지금처럼 프록시를 만들어 편집한다.
 - 인코더는 인터레이스 원본(`field_order` tt/bb)을 자동으로 디인터레이스한다: 59.94 설정이면 bwdif `mode=1`(필드마다 한 프레임, 1080p59.94),
   29.97 이면 `mode=0`. 그래서 1080i 원본도 코덱 설정에서 59.94 / 29.97 을 고를 수 있다.
   59.94 로 만들 때 마지막 프레임의 두 필드 사이에 컷이 있으면(편집기에는 안 보이는 다음 장면 한 필드) 그 필드를 뺀다.
@@ -182,15 +192,17 @@ ln -s /mnt/tvheadend /mnt/raid0_old/capture/tvheadend
 ## 구조
 
 ```
-app/main.py       FastAPI: REST, /ws 상태 push(1초), 정적 파일, /media/proxy, /media/thumb, /media/live
+app/main.py       FastAPI: REST, /ws 상태 push(1초), 정적 파일, /media/proxy, /media/thumb, /api/ts
 app/config.py     config.json 로드(없으면 config.example.json 에서 시작)/기본값/원자적 저장
 app/logger.py     로그 설정
 app/ffutil.py     ffmpeg 프로세스 관리(-progress 파싱, SIGINT 정상 종료), decklink 목록, ffprobe
 app/recorder.py   채널(장치)별 preview / record ffmpeg
 app/media.py      저장소 레이아웃, 브라우저 동작, proxy 생성
-app/liveproxy.py  프록시 없는 클립의 라이브 프록시 (요청 시 세그먼트 변환 + 캐시)
+app/tsindex.py    TS 의 GOP 위치 탐색 (브라우저 디코딩용, 파일 앞/끝과 작은 읽기만)
 app/encoder.py    subclip 큐/워커
 app/sysmon.py     psutil + NVML 상태 수집
 app/session.py    클라이언트 IP 별 편집 세션 (sessions.json)
-web/              index.html, style.css, *.js (vendor: hls.js 1.5.20, mediamtx reader.js)
+web/              index.html, style.css, *.js (vendor: hls.js 1.5.20, mediamtx reader.js, tsdec)
+wasm/             tsdec.c + build.sh: TS 디코더 wasm 빌드 (출력 web/vendor/tsdec/)
+web/ts*.js        TS 브라우저 디코딩: tsworker(디먹스+wasm 디코딩) · tsdecode(워커 풀) · tsplayer(<video> 대역) · yuv(WebGL)
 ```

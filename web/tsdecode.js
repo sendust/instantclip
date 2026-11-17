@@ -1,15 +1,15 @@
 "use strict";
 /* In-browser decoding of TS clips (tvheadend MPEG-2 recordings) for the editor.
  * The server locates GOPs (/api/ts/open, /api/ts/gop); a pool of tsworker.js workers fetches each GOP's
- * bytes straight from the original file (HTTP Range) and decodes it with ffmpeg.wasm.
+ * bytes straight from the original file (HTTP Range) and decodes it with tsdec.wasm (libavcodec, wasm/).
  *
  *   const d = new TsDecoder(4); const info = await d.open(path);
  *   const g = await d.decode(frame, {lowres: 1});   // {frame, count, w, h, cw, ch, frameSize, yuv, ...}
  *   // display frame n is at offset (n - g.frame) * g.frameSize;
  *   // g.audio = [L, R] Float32Array at 48 kHz, sample 0 at the start of frame g.frame
  */
-const TS_CORE = "/static/vendor/ffmpeg/ffmpeg-core.js";
-const TS_WASM = "/static/vendor/ffmpeg/ffmpeg-core.wasm";
+const TS_CORE = "/static/vendor/tsdec/tsdec.js";
+const TS_WASM = "/static/vendor/tsdec/tsdec.wasm";
 const TS_WORKER = "/static/tsworker.js";
 
 let tsWasm = null;
@@ -43,9 +43,10 @@ class TsDecoder {
     })));
   }
 
-  async open(path) {
+  /* info: /api/ts/open of the clip, when the caller has it already (/api/clip "ts") */
+  async open(path, info = null) {
     await this.start();
-    this.info = await api("GET", `/api/ts/open?path=${encodeURIComponent(path)}`);
+    this.info = info || await api("GET", `/api/ts/open?path=${encodeURIComponent(path)}`);
     this.url = `/api/files/download?root=capture&inline=1&path=${encodeURIComponent(path)}`;
     this.gops = [];
     return this.info;
@@ -74,8 +75,8 @@ class TsDecoder {
     return -1;
   }
 
-  /* decode the GOP holding frame n; keyOnly decodes just its I-frame */
-  async decode(n, { lowres = 0, keyOnly = false } = {}) {
+  /* decode the GOP holding frame n; keyOnly decodes just its I-frame; urgent jumps the queue */
+  async decode(n, { lowres = 0, keyOnly = false, urgent = false } = {}) {
     const t0 = performance.now();
     const g = await this.gop(n);
     const tGop = performance.now() - t0;
@@ -88,10 +89,18 @@ class TsDecoder {
       };
       job.msg.id = job.id;
       this.jobs.set(job.id, job);
-      this.queue.push(job);
+      if (urgent) this.queue.unshift(job); else this.queue.push(job);
       this.pump();
     });
     return { ...r, tGop };
+  }
+
+  /* forget jobs not started yet (they reject with "cancelled") */
+  dropQueued() {
+    for (const job of this.queue.splice(0)) {
+      this.jobs.delete(job.id);
+      job.reject(new Error("cancelled"));
+    }
   }
 
   pump() {

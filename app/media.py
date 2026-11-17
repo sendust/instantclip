@@ -16,8 +16,8 @@ import time
 from pathlib import Path, PurePosixPath
 
 from .config import Config
-from .ffutil import MEDIA_EXTS, FFmpegProcess, close_playlist, hls_info, probe, probe_cached, run_capture
-from .liveproxy import SEG_FRAMES, LiveProxy
+from .ffutil import MEDIA_EXTS, FFmpegProcess, close_playlist, hls_info, interlaced, probe, probe_cached, run_capture
+from .tsindex import TS_EXTS, TsError, TsFile, TsIndex, is_ts
 
 log = logging.getLogger("media")
 
@@ -47,7 +47,7 @@ class Media:
         self.proxy_progress: dict[str, dict] = {}
         self.proxy_errors: dict[str, str] = {}   # rel -> last generation failure
         self._timing: dict[tuple, tuple[float, float]] = {}   # (first segment, mtime) -> proxy_timing
-        self.live = LiveProxy(cfg)
+        self.ts = TsIndex()              # GOP locators of TS clips the browser decodes
         self._probing: dict[Path, float] = {}   # file -> when a listing last probed it in the background
 
     # ---------- paths ----------
@@ -168,7 +168,8 @@ class Media:
         hls = hls_info(m3u8)
         meta = {"recording": rel in recording, "has_proxy": hls is not None and hls["segments"] > 0,
                 "proxy_building": rel in self.proxy_jobs}
-        meta["live"] = not (meta["has_proxy"] or meta["proxy_building"] or meta["recording"]) and self.live.enabled()
+        meta["ts"] = not (meta["has_proxy"] or meta["proxy_building"] or meta["recording"]) and \
+            self.browser_decode() and rel.lower().endswith(TS_EXTS)
         if rel in recording:
             meta["duration"] = recording[rel]
         elif hls and hls["ended"]:
@@ -190,13 +191,12 @@ class Media:
         except (OSError, ValueError):
             pass
         info = await probe(self.cfg.section("ffmpeg")["ffprobe"], p)
-        if not (hls and hls["segments"] > 0) and rel not in self.proxy_jobs and rel not in recording \
-                and self.live.enabled():
-            e = await self.live.entry(rel, p)
-            if e:   # no proxy: play a live one, transcoded segment by segment (no thumbnails)
-                return {"path": rel, "name": p.name, "recording": False, "duration": self.live.duration(e),
-                        "proxy": self.live.url(e["key"]), "proxy_ended": True, "proxy_building": False,
-                        "proxy_error": "", "live": True, "thumb": None, "hires": info}
+        if not (hls and hls["segments"] > 0) and rel not in self.proxy_jobs and rel not in recording:
+            tf = await self.ts_file(p)
+            if tf:   # no proxy: the browser decodes the TS itself (web/tsplayer.js), no thumbnails
+                return {"path": rel, "name": p.name, "recording": False, "duration": tf.frames / self.editor_rate(),
+                        "proxy": None, "proxy_ended": True, "proxy_building": False, "proxy_error": "",
+                        "ts": {**tf.info(), "path": rel}, "thumb": None, "hires": info}
         return {
             "path": rel, "name": p.name, "recording": rel in recording,
             "duration": recording.get(rel) or (hls or {}).get("duration") or info.get("duration"),
@@ -208,12 +208,30 @@ class Media:
             "hires": info,
         }
 
-    async def live_entry(self, rel: str) -> dict | None:
-        """Live proxy entry of a clip that has no built proxy (None when it has one or live is off)."""
-        if not self.live.enabled() or hls_info(self.proxy_dir(rel) / "index.m3u8"):
+    def browser_decode(self) -> bool:
+        return bool(self.cfg.section("editor").get("browser_decode", True))
+
+    def editor_rate(self) -> float:
+        n, _, d = str(self.cfg.section("record_proxy")["fps"]).partition("/")
+        return float(n) / float(d or 1)
+
+    async def ts_file(self, p: Path) -> TsFile | None:
+        """GOP locator of a TS the browser can decode for the editor (MPEG-2 on the editor's frame rate)."""
+        if not self.browser_decode() or not p.is_file() or not is_ts(p):
             return None
-        p = self.resolve("capture", rel)
-        return await self.live.entry(rel, p) if p.is_file() else None
+        try:
+            tf = await asyncio.to_thread(self.ts.get, p)
+        except (TsError, OSError) as e:
+            log.warning("%s: no browser decode: %s", p.name, e)
+            return None
+        num, den = tf.seq["fps"]
+        return tf if abs(num / den - self.editor_rate()) < 0.01 else None
+
+    async def ts_clip(self, rel: str) -> TsFile | None:
+        """ts_file of a capture clip that has no proxy (the one the editor decodes in the browser)."""
+        if hls_info(self.proxy_dir(rel) / "index.m3u8"):
+            return None
+        return await self.ts_file(self.resolve("capture", rel))
 
     async def proxy_timing(self, rel: str) -> tuple[float, float] | None:
         """(player zero, proxy video start) as source pts, from the first proxy segment; None without one.
@@ -225,8 +243,8 @@ class Media:
         try:
             key = (str(seg), seg.stat().st_mtime)
         except OSError:
-            e = await self.live_entry(rel)
-            return await self.live.timing(e) if e else None
+            tf = await self.ts_clip(rel)   # browser-decoded TS: editor frame k = source frame at pts0 + k
+            return (tf.pts0 / 90000, tf.pts0 / 90000) if tf else None
         if key in self._timing:
             return self._timing[key]
         rc, out, _ = await run_capture([self.cfg.section("ffmpeg")["ffprobe"], "-v", "error", "-show_entries",
@@ -266,17 +284,11 @@ class Media:
             lines = (pdir / "index.m3u8").read_text(encoding="utf-8").splitlines()
         except OSError:
             lines = []
-        if not lines:   # live proxy: segments of 60 frames, made on demand for the range
-            e = await self.live_entry(rel)
-            if not e:
+        if not lines:
+            tf = await self.ts_clip(rel)
+            if not tf:
                 raise MediaError("프록시가 없습니다")
-            sf = SEG_FRAMES
-            want = range(max(0, (f0 - 1) // sf), min(self.live.segment_count(e), f1 // sf + 1))
-            paths = await asyncio.gather(*(self.live.segment(e["key"], i) for i in want))
-            if not all(paths):
-                raise MediaError("라이브 프록시 생성 실패")
-            segs = [(pp, i * sf, min(sf, e["frames"] - i * sf)) for i, pp in zip(want, paths)]
-            start = e["frames"]
+            return await self._ts_scenes(p, tf, f0, f1, rate, fps)
         for line in lines:
             if line.startswith("#EXTINF:"):
                 dur = float(line[8:].split(",")[0])
@@ -306,6 +318,30 @@ class Media:
             elif line.startswith("lavfi.scene_score=") and k is not None and f0 <= k <= f1:
                 frames.append([k, round(float(line.split("=", 1)[1]), 4)])
         return {"fps": fps, "from": f0, "to": min(f1, start - 1), "frames": frames}
+
+    async def _ts_scenes(self, p: Path, tf: TsFile, f0: int, f1: int, rate: float, fps) -> dict:
+        """scenes() of a browser-decoded TS, read from the source itself: editor frame k is the source frame
+        at pts0 + k frames, and of an interlaced frame the editor shows the first field, so that is scored."""
+        info = await probe(self.cfg.section("ffmpeg")["ffprobe"], p)
+        v = next((s for s in info.get("streams", []) if s.get("codec_type") == "video"), {})
+        v0, f1 = tf.pts0 / 90000, min(f1, tf.frames - 1)
+        x = max(0.0, v0 + (f0 - 1) / rate - info.get("start_time", 0.0) - 3)
+        field = ("field=type=bottom," if v.get("field_order") in ("bb", "bt") else "field=type=top,") \
+            if interlaced(v) else ""
+        args = [self.cfg.section("ffmpeg")["ffmpeg"], "-hide_banner", "-nostdin", "-v", "error",
+                "-ss", f"{x:.4f}", "-t", f"{(f1 - f0 + 2) / rate + 3.5:.4f}", "-i", str(p), "-copyts",
+                "-map", "0:v:0", "-vf", f"{field}scale=320:-2,select='gte(scene,0)',metadata=print:file=-",
+                "-an", "-f", "null", "-"]
+        rc, out, err = await run_capture(args, timeout=60)
+        if rc != 0:
+            raise MediaError(f"scene 검출 실패: {err.strip()[-200:]}")
+        frames, k = [], None
+        for line in out.splitlines():
+            if line.startswith("frame:"):
+                k = round((float(line.rsplit("pts_time:", 1)[1]) - v0) * rate)
+            elif line.startswith("lavfi.scene_score=") and k is not None and f0 <= k <= f1:
+                frames.append([k, round(float(line.split("=", 1)[1]), 4)])
+        return {"fps": fps, "from": f0, "to": f1, "frames": frames}
 
     # ---------- operations ----------
     def _check_not_recording(self, root, rel):

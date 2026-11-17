@@ -1,7 +1,8 @@
 "use strict";
 /* Decoder worker for TS clips: Range-fetch one GOP (bytes from /api/ts/gop), pull the video PES out of the
- * transport stream and decode it with ffmpeg.wasm into raw YUV. One single-threaded ffmpeg core per worker;
- * the page compiles the wasm once and hands the module to every worker.
+ * transport stream and decode it into raw YUV with tsdec.wasm (libavcodec's decoders, see wasm/tsdec.c).
+ * The page compiles the wasm once and hands the module to every worker; a worker keeps one decoder per
+ * codec and lowres, flushed between GOPs.
  *
  * The bytes run from the GOP's I-frame to the first picture after the next I-frame that displays after it.
  * Leading B-frames of the I-frame (open GOP: they reference the GOP before) are dropped here, so the decoder
@@ -12,32 +13,44 @@
  * GOP's display frames: sample s of the clip plays at frame-0 time + s / 48000, and a GOP gets samples
  * [floor(T0 * 8 / 15), floor(T1 * 8 / 15)) of its frame span [T0, T1) in 90 kHz ticks, so GOPs join seamlessly.
  */
-let core = null;
+let wasmModule = null, M = null;
+const decs = new Map();          // codec + lowres -> Dec* in M
 const aborts = new Map();
-const log = [];
+
+/* a fresh wasm instance (also after a failed job: a trap may leave the instance corrupt) */
+async function instance() {
+  if (M) return M;
+  M = await createTsDec({
+    instantiateWasm(imports, cb) {
+      WebAssembly.instantiate(wasmModule, imports).then((inst) => cb(inst));
+      return {};
+    },
+  });
+  decs.clear();
+  return M;
+}
 
 self.onmessage = async (e) => {
   const m = e.data;
   try {
     if (m.type === "init") {
       importScripts(m.coreUrl);
-      core = await createFFmpegCore({
-        instantiateWasm(imports, cb) {
-          WebAssembly.instantiate(m.wasmModule, imports).then((inst) => cb(inst));
-          return {};
-        },
-      });
-      core.setLogger(({ message }) => { log.push(message); if (log.length > 50) log.shift(); });
+      wasmModule = m.wasmModule;
+      await instance();
       self.postMessage({ type: "ready" });
     } else if (m.type === "cancel") {
       aborts.get(m.id)?.abort();
     } else if (m.type === "decode") {
-      await decodeJob(m);
+      await instance();
+      try { await decodeJob(m); }
+      catch (err) { if (!(err instanceof NetError)) M = null; throw err; }
     }
   } catch (err) {
     self.postMessage({ type: "error", id: m.id, message: String(err?.message || err) });
   }
 };
+
+class NetError extends Error {}
 
 const PKT = 188;
 const WRAP = 2 ** 33;
@@ -68,23 +81,31 @@ function demux(b, pid) {
   return out;
 }
 
-function concat(arrs) {
+/* PES payloads concatenated straight into the wasm heap: [ptr, len] (the caller frees ptr) */
+function toHeap(pes) {
   let n = 0;
-  for (const a of arrs) n += a.length;
-  const out = new Uint8Array(n);
-  let o = 0;
-  for (const a of arrs) { out.set(a, o); o += a.length; }
-  return out;
+  for (const p of pes) for (const a of p.data) n += a.length;
+  const ptr = M._malloc(n || 1);
+  let o = ptr;
+  for (const p of pes) for (const a of p.data) { M.HEAPU8.set(a, o); o += a.length; }
+  return [ptr, n];
 }
 
-const shr = (v, s) => -((-v) >> s); // AV_CEIL_RSHIFT
-
-function runFfmpeg(args) {
-  log.length = 0;
-  core.setTimeout(-1);
-  const ret = core.exec(...args);
-  core.reset();
-  return ret;
+/* decode an elementary stream with the codec's decoder: {n, out (copy), w, h} — see wasm/tsdec.c */
+function run(codec, lowres, pes, max) {
+  const k = `${codec}/${lowres}`;
+  let d = decs.get(k);
+  if (!d) {
+    d = M.ccall("dec_open", "number", ["string", "number"], [codec, lowres]);
+    if (!d) throw new Error(`디코더를 열 수 없습니다: ${codec}`);
+    decs.set(k, d);
+  }
+  const [ptr, len] = toHeap(pes);
+  const n = M._dec_run(d, ptr, len, max);
+  M._free(ptr);
+  if (n < 0) throw new Error(`${codec} 디코딩 오류 ${n}`);
+  const o = M._dec_out(d);
+  return { n, out: M.HEAPU8.slice(o, o + M._dec_len(d)), w: M._dec_w(d), h: M._dec_h(d) };
 }
 
 async function decodeJob(m) {
@@ -97,11 +118,11 @@ async function decodeJob(m) {
   try {
     const end = m.keyOnly ? Math.min(m.end, m.start + (m.keyBytes || 1 << 20)) : audio ? Math.max(m.end, m.aend) : m.end;
     const r = await fetch(m.url, { headers: { Range: `bytes=${base}-${end - 1}` }, signal: ac.signal });
-    if (r.status !== 206) throw new Error(`HTTP ${r.status}`);
+    if (r.status !== 206) throw new NetError(`HTTP ${r.status}`);
     buf = new Uint8Array(await r.arrayBuffer());
   } catch (err) {
     if (ac.signal.aborted) { self.postMessage({ type: "cancelled", id: m.id }); return; }
-    throw err;
+    throw err instanceof NetError ? err : new NetError(String(err?.message || err));
   } finally {
     aborts.delete(m.id);
   }
@@ -109,45 +130,30 @@ async function decodeJob(m) {
 
   const inRange = (a, b) => (p) => p.pos + base >= a && p.pos + base < b;
   let pes = demux(buf, m.pid).filter(inRange(m.start, m.end));
-  if (!pes.length || pes[0].pts !== m.pts) throw new Error("GOP 가 I-프레임으로 시작하지 않습니다");
+  if (!pes.length || pes[0].pts !== m.pts) throw new NetError("GOP 가 I-프레임으로 시작하지 않습니다");
   // drop the I-frame's leading B-frames (displayed before it)
   pes = pes.filter((p, i) => i === 0 || p.pts === null || (p.pts - m.pts + WRAP) % WRAP < WRAP / 2);
   if (m.keyOnly) pes = pes.slice(0, 1);
-  const es = concat(pes.flatMap((p) => p.data));
-
   const L = m.lowres | 0;
-  const w = shr(m.width, L), h = shr(m.height, L);
-  const cw = shr(w, 1), ch = shr(h, 1);
+  const v = run("mpeg2video", L, pes, m.keyOnly ? 1 : m.frames);
+  if (!v.n) throw new Error("디코딩된 프레임이 없습니다");
+  const yuv = v.out, w = v.w, h = v.h, cw = (w + 1) >> 1, ch = (h + 1) >> 1;
   const frameSize = w * h + 2 * cw * ch;
-  core.FS.writeFile("/in.es", es);
-  const args = ["-hide_banner", "-loglevel", "error", "-threads", "1"];
-  if (L) args.push("-lowres", String(L));
-  args.push("-f", "mpegvideo", "-i", "/in.es", "-frames:v", String(m.keyOnly ? 1 : m.frames),
-    "-an", "-f", "rawvideo", "-pix_fmt", "yuv420p", "/out.yuv");
-  const ret = runFfmpeg(args);
-  let yuv = null;
-  try { yuv = core.FS.readFile("/out.yuv"); } catch (_) { /* no output */ }
-  try { core.FS.unlink("/in.es"); } catch (_) {}
-  try { core.FS.unlink("/out.yuv"); } catch (_) {}
-  if (!yuv || !yuv.length) throw new Error(`ffmpeg ${ret}: ${log.slice(-3).join(" | ")}`);
   const t2 = performance.now();
 
   const pcm = audio ? decodeAudio(demux(buf, m.apid).filter(inRange(m.astart, m.aend)), m) : null;
   const t3 = performance.now();
 
-  const count = Math.floor(yuv.length / frameSize);
   self.postMessage({
     type: "done", id: m.id, keyOnly: !!m.keyOnly, lowres: L, frame: m.frame,
-    w, h, cw, ch, count, frameSize, yuv, pictures: pes.length, audio: pcm || [],
+    w, h, cw, ch, count: v.n, frameSize, yuv, pictures: pes.length, audio: pcm || [],
     bytes: buf.length, tFetch: t1 - t0, tDecode: t2 - t1, tAudio: t3 - t2,
   }, [yuv.buffer, ...(pcm || []).map((a) => a.buffer)]);
 }
 
-const AFMT = { ac3: "ac3", eac3: "eac3", mp2: "mp3", aac: "aac" };   // raw demuxer per codec (mp3 reads MPEG audio)
-
 /* decode the audio PES and cut them to the GOP's samples: [Float32Array L, R] at 48 kHz */
 function decodeAudio(pes, m) {
-  const sr = 48000, rel = (p) => ((p - m.pts0 + WRAP * 1.5) % WRAP) - WRAP / 2;
+  const rel = (p) => ((p - m.pts0 + WRAP * 1.5) % WRAP) - WRAP / 2;
   const s0 = Math.floor(((m.frame * m.fd) * 8) / 15);
   const s1 = Math.floor((((m.frame + m.frames) * m.fd) * 8) / 15);
   const out = [new Float32Array(s1 - s0), new Float32Array(s1 - s0)];
@@ -155,18 +161,11 @@ function decodeAudio(pes, m) {
   const k = pes.findIndex((p) => p.pts !== null && (m.acodec !== "ac3" || (p.data[0]?.[0] === 0x0b && p.data[0]?.[1] === 0x77)));
   if (k < 0) return out;
   pes = pes.slice(k);
-  core.FS.writeFile("/in.a", concat(pes.flatMap((p) => p.data)));
-  runFfmpeg(["-hide_banner", "-loglevel", "error", "-threads", "1", "-f", AFMT[m.acodec] || m.acodec, "-i", "/in.a",
-    "-ac", "2", "-ar", String(sr), "-f", "f32le", "/out.pcm"]);
-  let raw = null;
-  try { raw = core.FS.readFile("/out.pcm"); } catch (_) { /* no output */ }
-  try { core.FS.unlink("/in.a"); } catch (_) {}
-  try { core.FS.unlink("/out.pcm"); } catch (_) {}
-  if (!raw || raw.length < 8) return out;
-  const f = new Float32Array(raw.buffer, raw.byteOffset, raw.length >> 2);
+  const a = run(m.acodec, 0, pes, 0);
+  if (!a.n) return out;
+  const f = new Float32Array(a.out.buffer, 0, a.n * 2);
   const first = Math.round((rel(pes[0].pts) * 8) / 15);     // clip sample of the first decoded sample
-  const n = f.length >> 1;
-  for (let i = Math.max(0, first - s0), j = s0 + i - first; i < out[0].length && j < n; i++, j++) {
+  for (let i = Math.max(0, first - s0), j = s0 + i - first; i < out[0].length && j < a.n; i++, j++) {
     out[0][i] = f[2 * j];
     out[1][i] = f[2 * j + 1];
   }

@@ -181,7 +181,8 @@ button.toggle.on { background: #1d4d33; border-color: var(--in); }
 #p-edit:focus { outline: none; }
 #p-edit:focus-within .player { border-color: var(--accent); }
 .player.dragover { border-color: var(--in); border-style: dashed; }
-.player video { width: 100%; height: 100%; display: block; }
+.player video, .player canvas { width: 100%; height: 100%; display: block; }
+.player video[hidden], .player canvas[hidden] { display: none; }
 .drop-hint { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); pointer-events: none; }
 /* always shows whether the shortcuts reach the player (they work only while it has focus) */
 /* next to the 단축키 help line; .on is set from the player's focus/blur (player.js) */

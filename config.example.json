@@ -87,8 +87,9 @@
     "seek_ud": 60,
     "scene_range": 5,
     "scene_threshold": 0.3,
-    "live_proxy": true,
-    "live_cache_gb": 20
+    "browser_decode": true,
+    "ts_quality": "half",
+    "ts_workers": 0
   },
   "thumbnail": {
     "interval": 2,

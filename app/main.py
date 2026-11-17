@@ -19,7 +19,7 @@ from .media import ROOTS, Media, MediaError
 from .recorder import Recorder
 from .session import Sessions
 from .sysmon import SysMon
-from .tsindex import TsError, TsIndex, is_ts
+from .tsindex import TsError, is_ts
 
 cfg = Config()
 setup_logging(cfg.section("log"))
@@ -28,7 +28,6 @@ log = logging.getLogger("main")
 media = Media(cfg)
 recorder = Recorder(cfg, media)
 encoder = Encoder(cfg, media)
-tsindex = TsIndex()
 sysmon = SysMon(cfg)
 sessions = Sessions()
 WEB = ROOT / "web"
@@ -333,7 +332,7 @@ def _ts_file(path: str):
 async def ts_open(path: str):
     p = _ts_file(path)
     try:
-        tf = await asyncio.to_thread(tsindex.get, p)
+        tf = await asyncio.to_thread(media.ts.get, p)
     except (TsError, OSError) as e:
         raise HTTPException(400, str(e))
     return {**tf.info(), "path": path}
@@ -343,31 +342,10 @@ async def ts_open(path: str):
 async def ts_gop(path: str, frame: int):
     p = _ts_file(path)
     try:
-        tf = await asyncio.to_thread(tsindex.get, p)
+        tf = await asyncio.to_thread(media.ts.get, p)
         return await asyncio.to_thread(tf.gop, frame)
     except (TsError, OSError) as e:
         raise HTTPException(400, str(e))
-
-
-# ---------------- live proxy (clips without a built proxy) ----------------
-@app.get("/media/live/{key}/index.m3u8")
-async def live_playlist(key: str):
-    text = media.live.playlist(key)
-    if text is None:
-        raise HTTPException(404)
-    return Response(text, media_type="application/vnd.apple.mpegurl")
-
-
-@app.get("/media/live/{key}/{name}")
-async def live_segment(key: str, name: str):
-    try:
-        n = int(name.removeprefix("seg_").removesuffix(".ts"))
-    except ValueError:
-        raise HTTPException(404)
-    seg = await media.live.segment(key, n)
-    if not seg:
-        raise HTTPException(404)
-    return FileResponse(seg, media_type="video/mp2t")
 
 
 # ---------------- status ----------------

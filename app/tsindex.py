@@ -28,6 +28,7 @@ AMARGIN = 2880                  # one AC-3 frame (90 kHz) of audio around a GOP
 AREACH = 768 << 10              # step when looking for a GOP's audio beyond its video bytes
 AUDIO_TYPES = {0x03: "mp2", 0x04: "mp2", 0x0F: "aac", 0x81: "ac3", 0x87: "eac3"}
 PIC_TYPE = {1: "I", 2: "P", 3: "B"}
+TS_EXTS = (".ts", ".m2ts", ".mts")
 
 
 class TsError(Exception):
@@ -373,4 +374,4 @@ class TsIndex:
 
 
 def is_ts(path: Path) -> bool:
-    return path.suffix.lower() in (".ts", ".m2ts", ".mts") and os.path.getsize(path) > 4 * PKT
+    return path.suffix.lower() in TS_EXTS and os.path.getsize(path) > 4 * PKT
