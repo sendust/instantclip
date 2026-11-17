@@ -267,6 +267,7 @@ class Media:
         59.94 hires to 29.97 after a seek can pick the other field-frame of a pair and land a cut one
         frame off.) Score of a frame = how different it is from the one before (ffmpeg "scene", 0..1):
         a cut shows as one high frame, the first of the new shot.
+        Also the audio peak of every frame ("peaks", see _peaks), to see where a shot's sound starts and ends.
         """
         p = self.resolve("capture", rel)
         if not p.is_file():
@@ -305,10 +306,14 @@ class Media:
         tm = await self.proxy_timing(rel)
         shift = max(0, math.ceil((tm[1] - tm[0]) * rate - 0.5 - 1e-6)) if tm else 0
         first = use[0][1] + shift
+        src = "concat:" + "|".join(str(sg[0]) for sg in use)
         args = [self.cfg.section("ffmpeg")["ffmpeg"], "-hide_banner", "-nostdin", "-v", "error",
-                "-i", "concat:" + "|".join(str(sg[0]) for sg in use), "-map", "0:v:0",
+                "-i", src, "-map", "0:v:0",
                 "-vf", "scale=320:-2,select='gte(scene,0)',metadata=print:file=-", "-an", "-f", "null", "-"]
-        rc, out, err = await run_capture(args, timeout=60)
+        f1 = min(f1, start - 1)
+        (rc, out, err), peaks = await asyncio.gather(
+            run_capture(args, timeout=60),
+            self._peaks(["-i", src], tm[0], f0, f1, rate) if tm else asyncio.sleep(0, []))
         if rc != 0:
             raise MediaError(f"scene 검출 실패: {err.strip()[-200:]}")
         frames, k = [], None
@@ -317,7 +322,7 @@ class Media:
                 k = first + int(line.split()[0][6:])   # n-th decoded frame of the first used segment
             elif line.startswith("lavfi.scene_score=") and k is not None and f0 <= k <= f1:
                 frames.append([k, round(float(line.split("=", 1)[1]), 4)])
-        return {"fps": fps, "from": f0, "to": min(f1, start - 1), "frames": frames}
+        return {"fps": fps, "from": f0, "to": f1, "frames": frames, "peaks": peaks}
 
     async def _ts_scenes(self, p: Path, tf: TsFile, f0: int, f1: int, rate: float, fps) -> dict:
         """scenes() of a browser-decoded TS, read from the source itself: editor frame k is the source frame
@@ -328,11 +333,12 @@ class Media:
         x = max(0.0, v0 + (f0 - 1) / rate - info.get("start_time", 0.0) - 3)
         field = ("field=type=bottom," if v.get("field_order") in ("bb", "bt") else "field=type=top,") \
             if interlaced(v) else ""
-        args = [self.cfg.section("ffmpeg")["ffmpeg"], "-hide_banner", "-nostdin", "-v", "error",
-                "-ss", f"{x:.4f}", "-t", f"{(f1 - f0 + 2) / rate + 3.5:.4f}", "-i", str(p), "-copyts",
+        inp = ["-ss", f"{x:.4f}", "-t", f"{(f1 - f0 + 2) / rate + 3.5:.4f}", "-i", str(p)]
+        args = [self.cfg.section("ffmpeg")["ffmpeg"], "-hide_banner", "-nostdin", "-v", "error", *inp, "-copyts",
                 "-map", "0:v:0", "-vf", f"{field}scale=320:-2,select='gte(scene,0)',metadata=print:file=-",
                 "-an", "-f", "null", "-"]
-        rc, out, err = await run_capture(args, timeout=60)
+        # the browser plays audio sample s at frame-0 time + s / 48000 (web/tsworker.js): same clock
+        (rc, out, err), peaks = await asyncio.gather(run_capture(args, timeout=60), self._peaks(inp, v0, f0, f1, rate))
         if rc != 0:
             raise MediaError(f"scene 검출 실패: {err.strip()[-200:]}")
         frames, k = [], None
@@ -341,7 +347,29 @@ class Media:
                 k = round((float(line.rsplit("pts_time:", 1)[1]) - v0) * rate)
             elif line.startswith("lavfi.scene_score=") and k is not None and f0 <= k <= f1:
                 frames.append([k, round(float(line.split("=", 1)[1]), 4)])
-        return {"fps": fps, "from": f0, "to": f1, "frames": frames}
+        return {"fps": fps, "from": f0, "to": f1, "frames": frames, "peaks": peaks}
+
+    async def _peaks(self, inp: list[str], zero: float, f0: int, f1: int, rate: float) -> list:
+        """Audio peak (dBFS, L and R together) of editor frames f0..f1: [dB or None, ...] (None: no audio there,
+        -90 for silence). The first audio stream of inp is measured in short chunks; a chunk at source pts t is
+        at t - zero on the player clock and so in editor frame floor((t - zero) * rate)."""
+        args = [self.cfg.section("ffmpeg")["ffmpeg"], "-hide_banner", "-nostdin", "-v", "error", *inp, "-copyts",
+                "-map", "0:a:0", "-af", "asetnsamples=n=160:p=0,astats=metadata=1:reset=1:measure_perchannel=none:"
+                "measure_overall=Peak_level,ametadata=print:key=lavfi.astats.Overall.Peak_level:file=-",
+                "-vn", "-f", "null", "-"]
+        rc, out, _ = await run_capture(args, timeout=60)
+        peaks: list = [None] * (f1 - f0 + 1)
+        if rc != 0:
+            return peaks   # no audio stream: an empty graph, the scenes still count
+        k = None
+        for line in out.splitlines():
+            if line.startswith("frame:"):
+                k = math.floor((float(line.rsplit("pts_time:", 1)[1]) - zero) * rate + 1e-6) - f0
+            elif line.startswith("lavfi.astats.Overall.Peak_level=") and k is not None and 0 <= k < len(peaks):
+                with contextlib.suppress(ValueError):
+                    db = max(-90.0, float(line.split("=", 1)[1]))   # -inf = digital silence
+                    peaks[k] = round(db if peaks[k] is None else max(peaks[k], db), 1)
+        return peaks
 
     # ---------- operations ----------
     def _check_not_recording(self, root, rel):

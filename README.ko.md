@@ -143,6 +143,7 @@ MPEG-2 는 NVENC 가 지원하지 않아 CPU 로 인코딩한다 (실측: 1080p5
 | `Enter` | subclip 인코더 큐 등록 | `Space` / `K` | 재생/일시정지 |
 | `←` `→` | ∓`editor.seek_lr` 초 (기본 10) | `↓` `↑` | ∓`editor.seek_ud` 초 (기본 60) |
 | `J` `L` | -0.5 / +0.5 초 | `,` `.` | -1 / +1 프레임 |
+| `Home` | 첫 프레임으로 이동 후 정지 | `End` | 마지막 프레임으로 이동 후 정지 |
 | `/` | scene change 검출 (`✂ SCENE 검출` 버튼과 같음) | | |
 | `1`~`9` | 검출 띠가 열려 있을 때: N 번째 컷(새 장면 첫 프레임)으로 이동 후 정지 | `Shift+1`~`9` | N 번째 컷 −1 프레임(이전 장면 마지막 프레임)으로 이동 — out 점 찾기용 |
 
@@ -152,10 +153,11 @@ mark in 프레임은 subclip 에 포함되고 mark out 프레임은 포함되지
 
 ### Scene change 검출
 
-![Scene change 검출 — playhead 앞뒤 ±10초에서 컷 3개를 찾은 띠 (파란 세로선과 번호 = 컷, 초록 = mark in, 흰색 = playhead)](scenechange_detection.png)
+![Scene change 검출 — playhead 앞뒤 ±10초에서 컷 3개를 찾은 띠 (세로선과 번호 = 컷, 초록 = mark in, 흰색 = playhead)](scenechange_detection.png)
 
 타임라인 아래 `✂ SCENE 검출`(단축키 `/`)을 누르면 playhead 앞뒤 `범위 ±N초`(기본 5) 안의 장면 전환(컷)을 찾아,
-그 구간만 확대한 띠에 프레임마다의 변화량(막대)과 threshold(점선), 컷(파란 세로선), mark in/out, playhead 를 그린다.
+그 구간만 확대한 띠에 프레임마다의 변화량(막대)과 threshold(점선), 컷(분홍 세로선), mark in/out, playhead 를 그린다.
+그 아래에는 프레임마다의 오디오 peak(L·R 합쳐 하나, −60~0 dBFS, 초록 / −20 넘으면 노랑 / −6 넘으면 빨강)를 그려 장면의 소리가 어디서 시작하고 끝나는지 보인다.
 - 컷 = threshold(기본 0.3, 0~1) 이상인 프레임 = **새 장면의 첫 프레임**. threshold 는 바꾸는 즉시 다시 그린다 (재검출 없음).
 - 띠를 클릭하면 그 프레임으로 이동하고 정지한다 (컷 근처를 누르면 컷에 맞춰짐). 그 자리에서
   `I` = 새 장면부터 subclip 시작, `O` = 이전 장면의 마지막 프레임까지 (out 프레임은 포함되지 않으므로).

@@ -6,9 +6,11 @@
  * The threshold only filters what was fetched, so changing it redraws without re-analysing.
  * While the strip is open, keys 1-9 jump to the first nine cuts (numbered on the strip), Shift+1-9 to the
  * frame before each (the last frame of the old shot).
+ * Under the scores, the audio peak of every frame (L and R together, dBFS), to see where a shot's sound
+ * starts and ends around a cut.
  */
 const Scenes = {
-  data: null,      // {path, from, to, frames: [[k, score]...]}
+  data: null,      // {path, from, to, frames: [[k, score]...], peaks: [dB or null for from..to]}
   busy: false,
 
   init(cfg) {
@@ -108,9 +110,11 @@ const Scenes = {
     const { k, cut } = this.pick(e);
     const h = $("#sc-hover"), r = this.cv.getBoundingClientRect();
     const score = (this.data.frames.find(([f]) => f === k) || [, 0])[1];
+    const db = this.data.peaks?.[k - this.data.from];
     h.hidden = false;
     h.style.left = `${(k - this.data.from + 0.5) * this.slot()}px`;
-    h.textContent = `${tc(k * FRAME)}${cut ? `  ✂ 컷 (${score.toFixed(2)})` : `  ${score.toFixed(2)}`}`;
+    h.textContent = `${tc(k * FRAME)}${cut ? `  ✂ 컷 (${score.toFixed(2)})` : `  ${score.toFixed(2)}`}` +
+      (db != null ? `  ♪ ${db <= -90 ? "-∞" : db.toFixed(1)} dB` : "");
     if (this.hot !== (cut ? k : null)) { this.hot = cut ? k : null; this.key = null; this.render(); }
   },
 
@@ -139,10 +143,14 @@ const Scenes = {
     g.clearRect(0, 0, W, H);
     const css = getComputedStyle(document.documentElement);
     const col = (v, f) => css.getPropertyValue(v).trim() || f;
-    const th = this.threshold(), base = H - 14;   // bottom 14px: second ticks and cut labels
-    const y = (v) => base - Math.sqrt(Math.min(1, v)) * (base - 4);   // sqrt: small scores stay visible
+    // bands top to bottom: scene scores, audio peaks, second ticks
+    const th = this.threshold(), base = H - 14;   // bottom 14px: second ticks
+    const aH = 30, sBase = base - aH - 4;   // audio band = base - aH .. base
+    const y = (v) => sBase - Math.sqrt(Math.min(1, v)) * (sBase - 4);   // sqrt: small scores stay visible
+    const ay = (db) => base - Math.max(0, Math.min(1, (db + 60) / 60)) * aH;   // -60..0 dBFS
+    const w = Math.max(1, slot - 1);
     // one tick per second, labelled with the timecode's seconds
-    g.fillStyle = "#4a5868";
+    g.fillStyle = "#6b7c8f";
     g.font = "9px monospace";
     g.textAlign = "left";
     for (let k = Math.ceil(d.from / PROXY_FPS) * PROXY_FPS; k <= d.to + 1; k += PROXY_FPS) {
@@ -150,9 +158,14 @@ const Scenes = {
       g.fillRect(x, base, 1, 4);
       g.fillText(tc(f * FRAME).slice(3, 8), x + 2, H - 2);
     }
+    // band separator, audio guides at -20 and -6 dBFS
+    g.fillStyle = "#26303c";
+    g.fillRect(0, sBase + 2, W, 1);
+    g.fillStyle = "#1c2530";
+    for (const db of [-20, -6]) g.fillRect(0, Math.round(ay(db)), W, 1);
     // score of every frame, threshold line
-    g.fillStyle = "#3a4a5c";
-    for (const [k, s] of d.frames) g.fillRect((k - d.from) * slot, y(s), Math.max(1, slot - 1), Math.max(1, base - y(s)));
+    g.fillStyle = "#4fd1c5";
+    for (const [k, s] of d.frames) g.fillRect((k - d.from) * slot, y(s), w, Math.max(1, sBase - y(s)));
     g.strokeStyle = col("--warn", "#e8b931");
     g.setLineDash([4, 3]);
     g.beginPath();
@@ -160,22 +173,31 @@ const Scenes = {
     g.lineTo(W, Math.round(y(th)) + 0.5);
     g.stroke();
     g.setLineDash([]);
+    // audio peak of every frame, coloured like a meter
+    (d.peaks || []).forEach((db, i) => {
+      if (db == null || db <= -60) return;
+      g.fillStyle = db > -6 ? "#f0524f" : db > -20 ? "#e8c547" : "#4cc26e";
+      g.fillRect(i * slot, ay(db), w, base - ay(db));
+    });
+    g.fillStyle = "#6b7c8f";
+    g.textBaseline = "top";
+    g.fillText("AUDIO", 3, sBase + 4);
     // mark in / out inside the window
     for (const [m, c] of [[mi, col("--in", "#3ddc84")], [mo, col("--out", "#ff8a3d")]]) {
       if (m == null || m < d.from || m > d.to) continue;
       g.fillStyle = c;
       g.fillRect((m - d.from) * slot, 0, 2, H);
     }
-    // cuts: full-height line at the first frame of the new shot
+    // cuts: a line through both bands at the first frame of the new shot
+    const cutCol = "#ff4fa3";
     for (const k of cuts) {
-      g.fillStyle = k === this.hot ? "#fff" : col("--accent", "#3d9df3");
+      g.fillStyle = k === this.hot ? "#fff" : cutCol;
       g.fillRect((k - d.from) * slot, 0, Math.max(2, slot - 1), base);
     }
     // key numbers of the first nine cuts, at the top right of each line
     g.font = "bold 11px monospace";
-    g.textBaseline = "top";
     cuts.slice(0, 9).forEach((k, i) => {
-      g.fillStyle = k === this.hot ? "#fff" : col("--accent", "#3d9df3");
+      g.fillStyle = k === this.hot ? "#fff" : cutCol;
       g.fillText(String(i + 1), (k - d.from) * slot + Math.max(2, slot - 1) + 2, 2);
     });
   },

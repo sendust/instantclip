@@ -376,6 +376,8 @@ const Player = {
       // jumps always land paused, parked on the marked frame
       case "in-jump": if (this.markIn != null) { this.v.pause(); this.seek(this.markIn + FRAME / 2); } return;
       case "out-jump": if (this.markOut != null) { this.v.pause(); this.seek(this.markOut + FRAME / 2); } return;
+      case "begin": this.v.pause(); return this.seek(FRAME / 2);
+      case "end": this.v.pause(); return this.seek((frameOf(this.duration() - FRAME / 2) + 0.5) * FRAME);   // last frame
       case "mark-in":
         this.queued = false;
         if (!this.editable()) return;
@@ -410,6 +412,7 @@ const Player = {
       KeyJ: "back05", KeyL: "fwd05",
       Comma: "frame-", Period: "frame+",
       Slash: "scenes", NumpadDivide: "scenes",
+      Home: "begin", End: "end",
     };
     // 1-9: the n-th cut of the scene detection strip, only while it is open; Shift: the frame before it
     // (the last frame of the old shot, to find an out point)

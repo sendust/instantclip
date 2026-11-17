@@ -165,6 +165,7 @@ started; next to it is the server hostname (the browser tab title is `instantcli
 | `Enter` | add subclip to the encoder queue | `Space` / `K` | play/pause |
 | `←` `→` | ∓`editor.seek_lr` s (default 10) | `↓` `↑` | ∓`editor.seek_ud` s (default 60) |
 | `J` `L` | -0.5 / +0.5 s | `,` `.` | -1 / +1 frame |
+| `Home` | go to the first frame and pause | `End` | go to the last frame and pause |
 | `/` | scene change detection (same as the `✂ SCENE 검출` button) | | |
 | `1`–`9` | while the detection strip is open: go to cut N (first frame of the new scene) and pause | `Shift+1`–`9` | go to cut N − 1 frame (last frame of the previous scene) — for finding out points |
 
@@ -175,11 +176,12 @@ Subclips of recording sources do not take an encoding slot while waiting (WAITIN
 
 ### Scene change detection
 
-![Scene change detection — the strip after finding 3 cuts within ±10 s of the playhead (blue lines with numbers = cuts, green = mark in, white = playhead)](scenechange_detection.png)
+![Scene change detection — the strip after finding 3 cuts within ±10 s of the playhead (lines with numbers = cuts, green = mark in, white = playhead)](scenechange_detection.png)
 
 Pressing `✂ SCENE 검출` below the timeline (shortcut `/`) finds scene changes (cuts) within `범위 ±N초` (range ±N s,
 default 5) around the playhead and draws a zoomed strip of just that span: per-frame change (bars), the threshold
-(dashed line), cuts (blue vertical lines), mark in/out and the playhead.
+(dashed line), cuts (pink vertical lines), mark in/out and the playhead. Below the scores, the audio peak of every
+frame (L and R together, −60–0 dBFS; green / yellow above −20 / red above −6) shows where a shot's sound starts and ends.
 - Cut = a frame at or above the threshold (default 0.3, 0–1) = **the first frame of the new scene**. Changing the
   threshold redraws immediately (no re-detection).
 - Clicking the strip goes to that frame and pauses (clicking near a cut snaps to it). From there,
