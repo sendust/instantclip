@@ -1,4 +1,4 @@
-"""System status sampler: CPU, RAM, GPU (NVML), NIC throughput, temperatures, power, disks."""
+"""System status sampler: uptimes, CPU, RAM, GPU (NVML), NIC throughput, temperatures, power, disks."""
 import asyncio
 import logging
 import shutil
@@ -27,6 +27,8 @@ class SysMon:
         self._rapl_prev: dict[str, tuple[float, int]] = {}
         psutil.cpu_percent(percpu=True)
         self.cpu_info = self._cpu_info()
+        self.boot = psutil.boot_time()                    # host up since (epoch s)
+        self.started = psutil.Process().create_time()     # this instantclip process since
         self.gpu_driver = ""
         if _NVML:
             try:
@@ -149,6 +151,7 @@ class SysMon:
         per = psutil.cpu_percent(percpu=True)
         self.data = {
             "time": time.time(),
+            "uptime": {"host": time.time() - self.boot, "app": time.time() - self.started},
             "cpu": {"total": sum(per) / len(per) if per else 0, "per": per,
                     "load": list(psutil.getloadavg()), "count": psutil.cpu_count(), **self.cpu_info},
             "mem": {"total": vm.total, "used": vm.total - vm.available, "percent": vm.percent},

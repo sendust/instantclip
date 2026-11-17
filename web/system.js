@@ -20,9 +20,21 @@ const System = {
     return `<div class="sys-item"><span class="k">${k}</span><span class="v">${v}</span>${pct == null ? "" : this.bar(pct, warn, crit)}</div>`;
   },
 
+  /* 93784 s -> "1일 02:03:04" */
+  age(sec) {
+    const s = Math.max(0, Math.floor(sec || 0)), d = Math.floor(s / 86400);
+    const hms = [Math.floor(s / 3600) % 24, Math.floor(s / 60) % 60, s % 60].map((v) => String(v).padStart(2, "0")).join(":");
+    return d ? `${d}일 ${hms}` : hms;
+  },
+
   render(s) {
     if (!s || !s.cpu) return;
     const h = [];
+    if (s.uptime) {
+      h.push(this.item("Host up", null, this.age(s.uptime.host)));
+      h.push(this.item("instantclip", null, this.age(s.uptime.app)));
+      h.push('<div class="sys-sep"></div>');
+    }
     if (s.cpu.model) {
       const c = s.cpu, model = c.model.replace(/\((R|TM)\)/g, "").replace(/ CPU/, "").replace(/\s+/g, " ");
       h.push(`<div class="sys-cpu"><span class="mono">${esc(model)}</span><span class="muted">${c.sockets > 1 ? `${c.sockets} socket · ` : ""}${c.cores ?? "?"} core · ${c.threads} thread</span></div>`);
