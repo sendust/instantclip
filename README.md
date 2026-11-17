@@ -66,7 +66,7 @@ UI 의 subclip 코덱 설정은 바꾸는 즉시 이 파일에 저장된다. 나
 | `record_hires` | 고해상도 녹화 코덱. 기본 `mpeg2video` 35M CBR (minrate=maxrate=bitrate), GOP 30, B 2, `threads`, `extra_args`(intra_vlc, non_linear_quant, qmin/qmax). `h264_nvenc`/`libx264` 로 바꿀 수도 있음 |
 | `record_proxy` | 저해상도 녹화 코덱 (854x480, 29.97, 4M, HLS segment 길이) |
 | `live` | WebRTC 모니터용 인코딩 |
-| `editor` | 화살표 키 seek 시간(초): `seek_lr` ←/→ (기본 10), `seek_ud` ↓/↑ (기본 60). 버튼 표시도 이 값을 따름. scene 검출 기본값 `scene_range` (±초, 5), `scene_threshold` (0.3). 프록시 없는 TS 를 브라우저에서 디코딩 `browser_decode` (true), 그 화질 `ts_quality` (`full` / `half` / `quarter`, 기본 half), 디코딩 워커 수 `ts_workers` (0 = 자동, CPU 코어 − 2, 2~6) |
+| `editor` | 화살표 키 seek 시간(초): `seek_lr` ←/→ (기본 10), `seek_ud` ↓/↑ (기본 60). 버튼 표시도 이 값을 따름. scene 검출 기본값 `scene_range` (±초, 5), `scene_threshold` (0.3). 프록시 없는 TS 를 브라우저에서 디코딩 `browser_decode` (true), 그 화질 `ts_quality` (`full` / `half` / `quarter`, 기본 full — half 이하는 MPEG-2 lowres 디코딩이라 작은 자막이 깍두기로 뭉개진다), 디코딩 워커 수 `ts_workers` (0 = 자동, CPU 코어 − 2, 2~4) |
 | `thumbnail` | 썸네일 간격/크기 |
 | `subclip` | subclip 코덱 (h264_nvenc / hevc_nvenc / libx264, preset, rc, bitrate, GOP, faststart, 오디오, gain), `name_template`, 동시 인코딩 수 `workers`(UI 에서 변경, 즉시 적용), 인터레이스 원본 디인터레이스 `deinterlace` (`auto` / `off`) |
 | `mediamtx` | RTSP 주소, WebRTC 주소/포트 (`webrtc_url` 이 비어 있으면 `브라우저 host:webrtc_port`) |
@@ -162,7 +162,7 @@ ln -s /mnt/tvheadend /mnt/raid0_old/capture/tvheadend
   - 서버(`app/tsindex.py`)는 파일 앞 4 MB 와 끝 2 MB 만 읽어 PAT/PMT, 첫 I-프레임(= 프레임 0), 프레임 수를 알아내고,
     프레임 번호를 주면 그 GOP 의 바이트 범위를 보간 탐색(작은 읽기 몇 번, 평균 0.1~0.2 초)으로 찾는다. 파일 전체를 훑지 않는다.
     B-frame / open GOP 도 처리한다 (GOP 범위 = 그 I-프레임부터 다음 I-프레임 뒤 B-frame 까지).
-  - 브라우저 워커(`web/tsworker.js`, 여러 개)가 그 범위를 HTTP Range 로 원본에서 받아 TS 를 풀고, MPEG-2 비디오(Half 화질은 lowres 1)와
+  - 브라우저 워커(`web/tsworker.js`, 여러 개)가 그 범위를 HTTP Range 로 원본에서 받아 TS 를 풀고, MPEG-2 비디오(기본 Full, Half 는 lowres 1)와
     첫 번째 오디오 스트림(AC-3 → 48 kHz 스테레오)을 디코딩한다. 오디오는 프레임 0 기준 샘플 격자로 잘라 GOP 끼리 빈틈 없이 이어진다.
   - 인터레이스 프레임은 첫 필드를 보여준다(WebGL bob). 편집기 프레임 k = 원본의 k 번째 표시 프레임이라
     scene 검출(원본에서 첫 필드로 직접 계산)과 subclip 인코딩도 녹화 클립과 똑같이 프레임 단위로 맞는다.

@@ -88,7 +88,7 @@
     "scene_range": 5,
     "scene_threshold": 0.3,
     "browser_decode": true,
-    "ts_quality": "half",
+    "ts_quality": "full",
     "ts_workers": 0
   },
   "thumbnail": {
