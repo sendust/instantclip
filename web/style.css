@@ -47,6 +47,8 @@ kbd { font: 10px var(--mono); background: #0f1318; border: 1px solid var(--line)
 .brand b { color: var(--accent); }
 .brand .by { font-size: 12px; color: var(--muted); margin-left: 4px; }
 .brand .build { font: 11px var(--mono); color: var(--muted); margin-left: 6px; }
+.brand .host { font: 12px var(--mono); color: var(--text); margin-left: 10px; padding: 1px 7px;
+  border: 1px solid var(--line); border-radius: 4px; }
 .top-status { display: flex; gap: 12px; align-items: center; }
 .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; background: var(--in); }
 .dot.off { background: var(--rec); }

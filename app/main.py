@@ -3,6 +3,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import socket
 import subprocess
 from pathlib import Path
 
@@ -105,7 +106,7 @@ async def get_config():
     return {"subclip": c["subclip"], "paths": c["paths"], "mediamtx": c["mediamtx"],
             "thumbnail": c["thumbnail"], "capture": c["capture"], "editor": c["editor"],
             "record_proxy": {k: c["record_proxy"][k] for k in ("width", "height", "fps")},
-            "commit_time": COMMIT_TIME}
+            "commit_time": COMMIT_TIME, "hostname": socket.gethostname()}
 
 
 @app.put("/api/config/subclip")

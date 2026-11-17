@@ -4,6 +4,13 @@ const App = {
   async init() {
     const cfg = await api("GET", "/api/config");
     if (cfg.commit_time) $("#commit-time").textContent = `[${cfg.commit_time}]`;
+    if (cfg.hostname) {   // several servers run instantclip: which one this page talks to
+      const h = $("#hostname");
+      h.textContent = cfg.hostname;
+      h.title = `서버 호스트 ${cfg.hostname} (${location.host})`;
+      h.hidden = false;
+      document.title = `instantclip @ ${cfg.hostname}`;
+    }
     Record.init(cfg);
     Player.init(cfg);
     Scenes.init(cfg);
