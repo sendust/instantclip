@@ -153,6 +153,7 @@ button.rec.on { background: var(--rec); color: #fff; animation: blink 1s steps(2
 .badge.error { background: #5a1d1d; border-color: var(--rec); }
 .live-head { display: flex; justify-content: space-between; align-items: center; margin: 8px 0 6px; }
 .switch { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.switch:has(input:disabled) { color: var(--muted); cursor: default; }
 .live-video { position: relative; width: 400px; max-width: 100%; aspect-ratio: 16/9; background: #000; border: 1px solid var(--line); }
 .live-video video { width: 100%; height: 100%; display: block; }
 .video-msg { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 12px; pointer-events: none; text-align: center; padding: 10px; }

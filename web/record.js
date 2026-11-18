@@ -84,7 +84,7 @@ const Record = {
     $("#rec-error").hidden = !c.error;
     $("#rec-error").textContent = c.error || "";
     $("#live-input").checked = !!c.preview;
-    $("#live-input").disabled = !!busy && !c.preview;
+    $("#live-input").disabled = !this.device || (!!busy && !c.preview);   // no DeckLink on this host: nothing to monitor
     $("#live-nosig").hidden = !(c.no_signal && c.mode !== "idle");
     $("#live-body").hidden = this.collapsed;
     $("#live-collapse").textContent = (this.collapsed ? "▸" : "▾") + " Live 모니터";
