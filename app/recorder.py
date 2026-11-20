@@ -198,25 +198,36 @@ class Channel:
             ext = self.mgr.cfg.section("record_hires")["container"]
             media = self.mgr.media
             hires = media.cfg.path_of("record") / f"{name}.{ext}"
+            # ffmpeg creates the file only once the DeckLink input is open: a REC on another device in the
+            # same second would see no file and take the same name, so names in use are checked as well
+            taken = self.mgr.starting | {c.rel for c in self.mgr.channels.values() if c.rel}
             n = 1
-            while hires.exists():
+            while hires.exists() or hires.name in taken or media.proxy_dir(hires.name).exists():
                 n += 1
                 hires = hires.with_name(f"{name}-{n}.{ext}")
             rel = hires.name
-            pdir, tdir = media.proxy_dir(rel), media.thumb_dir(rel)
-            for d in (hires.parent, pdir, tdir):
-                d.mkdir(parents=True, exist_ok=True)
-            (tdir / "meta.json").write_text(json.dumps({"interval": self.mgr.cfg.section("thumbnail")["interval"]}))
-            if self.mode == "preview":
-                await self._stop_proc()
-            self.rel = rel
-            self.rec_fps = fps
-            self.rec_started = time.time()
-            self.deadline = self.rec_started + float(cap["auto_stop_sec"])
-            await self._launch(self._record_args(hires, pdir, tdir, fps), "recording")
-            media.bump()
-            log.info("[%s] recording start %s (%s fps)", self.device, rel, fps)
+            self.mgr.starting.add(rel)
+            try:
+                await self._start_record(rel, hires, fps)
+            finally:
+                self.mgr.starting.discard(rel)
             return rel
+
+    async def _start_record(self, rel: str, hires: Path, fps: str):
+        cap, media = self.mgr.cfg.section("capture"), self.mgr.media
+        pdir, tdir = media.proxy_dir(rel), media.thumb_dir(rel)
+        for d in (hires.parent, pdir, tdir):
+            d.mkdir(parents=True, exist_ok=True)
+        (tdir / "meta.json").write_text(json.dumps({"interval": self.mgr.cfg.section("thumbnail")["interval"]}))
+        if self.mode == "preview":
+            await self._stop_proc()
+        self.rel = rel
+        self.rec_fps = fps
+        self.rec_started = time.time()
+        self.deadline = self.rec_started + float(cap["auto_stop_sec"])
+        await self._launch(self._record_args(hires, pdir, tdir, fps), "recording")
+        media.bump()
+        log.info("[%s] recording start %s (%s fps)", self.device, rel, fps)
 
     def extend(self, sec: float) -> float:
         if self.mode != "recording":
@@ -241,6 +252,7 @@ class Recorder:
         self.channels: dict[str, Channel] = {}
         self.devices: list[str] = []
         self.busy: dict[str, str] = {}   # device -> "ffmpeg (pid N, owner)" held by another process
+        self.starting: set[str] = set()   # clips named by a REC whose ffmpeg is not running yet
         self._held_prev: set[tuple[str, int]] = set()
         # mediamtx path -> readyTime of its current publisher. REC replaces the preview ffmpeg on the
         # same path; a browser keyed on this reconnects once the new publisher is up (else it freezes)

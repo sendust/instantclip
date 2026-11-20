@@ -204,6 +204,10 @@ button.toggle.on { background: #1d4d33; border-color: var(--in); }
 
 .timeline { position: relative; height: 26px; margin: 10px 0 4px; background: #0b0e12; border: 1px solid var(--line); border-radius: 3px; cursor: pointer; user-select: none; }
 .tl-buffer { position: absolute; top: 0; bottom: 0; left: 0; background: #1f2731; }
+/* the span the scene strip analysed, and its cuts (shown while the strip is open) */
+.tl-scene { position: absolute; inset: 0; pointer-events: none; }
+.tl-scene .area { position: absolute; top: -3px; bottom: -3px; min-width: 6px; box-sizing: border-box; background: rgba(79, 209, 197, .3); border: 1px solid #4fd1c5; border-radius: 2px; }
+.tl-scene .cut { position: absolute; top: 0; bottom: 0; width: 1px; background: #ff4fa3; }
 .tl-played { position: absolute; top: 0; bottom: 0; left: 0; background: rgba(61, 157, 243, .25); }
 .tl-range { position: absolute; top: 0; bottom: 0; background: rgba(232, 185, 49, .28); border-top: 2px solid var(--warn); border-bottom: 2px solid var(--warn); }
 .tl-mark { position: absolute; top: -4px; bottom: -4px; width: 2px; display: none; }

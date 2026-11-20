@@ -72,6 +72,25 @@ const Scenes = {
     this.data = null;
     this.box.hidden = true;
     $("#sc-info").textContent = "";
+    $("#tl-scene").hidden = true;
+    this.tlKey = null;
+  },
+
+  /* the analysed span and its cuts on the main timeline under the video; redrawn only when the
+     threshold or the clip length (a recording grows) changes */
+  timeline(cuts) {
+    const d = this.data, dur = Player.duration();
+    const key = `${dur}|${d.from}|${d.to}|${cuts.join(",")}`;
+    if (key === this.tlKey) return;
+    this.tlKey = key;
+    const el = $("#tl-scene");
+    el.hidden = !(dur > 0);
+    if (!(dur > 0)) return;
+    const pct = (t) => `${Math.max(0, Math.min(100, (t / dur) * 100))}%`;
+    const a = d.from * FRAME, b = (d.to + 1) * FRAME;
+    // on a long clip the span is a few pixels: keep it at least 6px, centred on the span
+    el.innerHTML = `<div class="area" style="left:calc(${pct((a + b) / 2)} - max(3px, (${pct(b)} - ${pct(a)}) / 2));width:calc(${pct(b)} - ${pct(a)})"></div>`
+      + cuts.map((k) => `<div class="cut" style="left:${pct(k * FRAME)}"></div>`).join("");
   },
 
   /* canvas x <-> frame; frames are drawn as equal-width slots from..to */
@@ -129,6 +148,7 @@ const Scenes = {
     head.hidden = cur < d.from || cur > d.to;
     head.style.left = `${(cur - d.from + 0.5) * slot}px`;
     const cuts = this.cuts();
+    this.timeline(cuts);
     $("#sc-info").textContent = `${tc(d.from * FRAME)} – ${tc(d.to * FRAME)} · 컷 ${cuts.length}개`;
 
     const mi = Player.markIn != null ? frameOf(Player.markIn) : null, mo = Player.markOut != null ? frameOf(Player.markOut) : null;

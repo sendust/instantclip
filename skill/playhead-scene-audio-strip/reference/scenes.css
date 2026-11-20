@@ -1,0 +1,9 @@
+.scene-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 6px; font-size: 12px; }
+.scene-bar label { color: var(--muted); display: flex; align-items: center; gap: 4px; }
+.scene-bar input { width: 60px; }
+#sc-info { color: var(--muted); font-size: 11px; }
+.scenes { position: relative; height: 104px; margin-top: 6px; background: #0b0e12; border: 1px solid var(--line); border-radius: 3px; }
+.scenes canvas { display: block; width: 100%; height: 100%; cursor: pointer; }
+.sc-head { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: #fff; pointer-events: none; }
+.sc-hover { position: absolute; top: 2px; transform: translateX(-50%); background: #000; border: 1px solid var(--line); padding: 1px 5px; font-size: 11px; white-space: nowrap; pointer-events: none; z-index: 5; }
+.sc-close { position: absolute; top: 2px; right: 2px; padding: 0 5px; font-size: 11px; line-height: 16px; }
