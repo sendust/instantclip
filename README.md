@@ -168,6 +168,7 @@ started; next to it is the server hostname (the browser tab title is `instantcli
 | `Home` | go to the first frame and pause | `End` | go to the last frame and pause |
 | `/` | scene change detection (same as the `✂ SCENE 검출` button) | | |
 | `1`–`9` | while the detection strip is open: go to cut N (first frame of the new scene) and pause | `Shift+1`–`9` | go to cut N − 1 frame (last frame of the previous scene) — for finding out points |
+| `Ctrl+←` | while the detection strip is open: go to the previous cut and pause | `Ctrl+→` | go to the next cut and pause |
 
 Keys are matched by `KeyboardEvent.code`, so they work with the Korean input method active too.
 The mark in frame is included in the subclip and the mark out frame is not (duration = out − in frames; the last frame
@@ -188,7 +189,8 @@ frame (L and R together, −60–0 dBFS; green / yellow above −20 / red above 
   `I` = start the subclip at the new scene, `O` = end it at the last frame of the previous scene (the out frame is not included).
 - Cuts are numbered 1–9. While the strip is open, number keys `1`–`9` go to that cut (the first frame of the new scene —
   press `I` right there), and `Shift+1`–`9` go to one frame before it (the last frame of the previous scene), pausing in
-  both cases. Once the strip is closed (`✕`), number keys do nothing.
+  both cases. `Ctrl+←` / `Ctrl+→` go to the previous / next cut from the playhead (beyond the first nine too).
+  Once the strip is closed (`✕`), number keys and `Ctrl+←` / `Ctrl+→` do nothing.
   Since the out frame is not included in the subclip, to cut up to the end of the previous scene press `O` at the cut itself (`1`–`9`).
 - The server computes it only when the button is pressed (ffmpeg `scene` score over the proxy, about 0.5 s for a 10 s span).
   It analyses the very proxy the editor shows, counted frame by frame, so the frame numbers shown match the editor exactly.

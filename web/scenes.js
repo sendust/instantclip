@@ -116,6 +116,15 @@ const Scenes = {
     Player.box.focus({ preventScroll: true });
   },
 
+  /* Ctrl+← / Ctrl+→: park on the nearest cut before / after the playhead frame */
+  step(dir) {
+    const cur = frameOf(Player.v.currentTime || 0), cuts = this.cuts();
+    const k = dir > 0 ? cuts.find((c) => c > cur) : cuts.filter((c) => c < cur).pop();
+    if (k == null) return toast(dir > 0 ? "다음 컷이 없습니다" : "이전 컷이 없습니다", true);
+    Player.v.pause();
+    Player.seek((k + 0.5) * FRAME);
+  },
+
   /* key n (1-9): park on the n-th cut, like clicking it; off -1: on the frame before it */
   jump(n, off = 0) {
     const k = this.cuts()[n - 1];

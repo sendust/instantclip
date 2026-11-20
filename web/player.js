@@ -422,6 +422,12 @@ const Player = {
       e.stopPropagation();
       return Scenes.jump(Number(digit[2]), e.shiftKey ? -1 : 0);
     }
+    // Ctrl+← / Ctrl+→: the previous / next cut of the scene detection strip, only while it is open
+    if (ctrl && !e.shiftKey && Scenes.data && (e.code === "ArrowLeft" || e.code === "ArrowRight")) {
+      e.preventDefault();
+      e.stopPropagation();
+      return Scenes.step(e.code === "ArrowRight" ? 1 : -1);
+    }
     const a = map[e.code];
     if (!a || (ctrl && !["KeyI", "KeyO"].includes(e.code)) || (a === "scenes" && e.shiftKey)) return;
     e.preventDefault();
