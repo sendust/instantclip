@@ -99,6 +99,7 @@ const Player = {
     $("#ed-lastrec").addEventListener("mousedown", (e) => e.preventDefault());
     $("#ed-lastrec").onclick = () => this.loadLastRec();
     this.initTimeline();
+    this.initResize();
     this.render();
   },
 
@@ -493,6 +494,42 @@ const Player = {
   },
 
   /* ---------- timeline ---------- */
+  /* the bar under the video sets its height; the width follows at 16:9 and never exceeds the panel.
+     Remembered per browser; double click goes back to full width */
+  initResize() {
+    const ed = $(".editor"), bar = $("#ed-resize"), box = this.box;
+    let want = parseFloat(localStorage.getItem("ic.playerH")) || 0;   // 0 = full width
+    const fit = () => {
+      ed.classList.toggle("sized", want > 0);
+      if (!(want > 0)) { box.style.width = ""; return; }
+      const avail = ed.clientWidth - $("#ed-meter").offsetWidth - 8;
+      box.style.width = `${Math.max(160, Math.min(avail, want * 16 / 9))}px`;
+    };
+    bar.addEventListener("mousedown", (e) => e.preventDefault());   // keep focus (shortcuts) in the player
+    bar.addEventListener("pointerdown", (e) => {
+      bar.setPointerCapture(e.pointerId);
+      bar.classList.add("drag");
+      const y0 = e.clientY, h0 = box.getBoundingClientRect().height;
+      const move = (ev) => { want = Math.max(90, h0 + ev.clientY - y0); fit(); };
+      const up = () => {
+        bar.classList.remove("drag");
+        bar.removeEventListener("pointermove", move);
+        bar.removeEventListener("pointerup", up);
+        bar.removeEventListener("pointercancel", up);
+        // dragged as wide as the panel allows: same as the default
+        if (want * 16 / 9 >= ed.clientWidth - $("#ed-meter").offsetWidth - 8) want = 0;
+        try { want ? localStorage.setItem("ic.playerH", want) : localStorage.removeItem("ic.playerH"); } catch (_) {}
+        fit();
+      };
+      bar.addEventListener("pointermove", move);
+      bar.addEventListener("pointerup", up);
+      bar.addEventListener("pointercancel", up);
+    });
+    bar.addEventListener("dblclick", () => { want = 0; try { localStorage.removeItem("ic.playerH"); } catch (_) {} fit(); });
+    new ResizeObserver(fit).observe(ed);
+    fit();
+  },
+
   initTimeline() {
     const tl = $("#timeline");
     const tAt = (e) => {

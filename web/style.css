@@ -183,7 +183,12 @@ button.toggle.on { background: #1d4d33; border-color: var(--in); }
 
 /* ---------- editor ---------- */
 .clip-title { font-weight: 400; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.editor { display: flex; gap: 8px; }
+.editor { display: flex; gap: 8px; justify-content: center; }
+/* a height the user dragged (player.js sizes the width from it, 16:9 kept); none = full width */
+.editor.sized .player { flex: 0 0 auto; }
+.ed-resize { height: 8px; margin: 2px 0 -4px; cursor: ns-resize; position: relative; touch-action: none; }
+.ed-resize::after { content: ""; position: absolute; left: 50%; top: 3px; width: 48px; height: 2px; margin-left: -24px; border-radius: 1px; background: var(--line); }
+.ed-resize:hover::after, .ed-resize.drag::after { background: var(--accent); }
 .player { position: relative; flex: 1; aspect-ratio: 16/9; background: #000; border: 2px solid var(--line); outline: none; cursor: pointer; min-width: 0; }
 #p-edit:focus { outline: none; }
 #p-edit:focus-within .player { border-color: var(--accent); }

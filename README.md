@@ -132,6 +132,8 @@ started; next to it is the server hostname (the browser tab title is `instantcli
 2. **Edit control** — drag a clip from the media browser and drop it, or double-click it. It opens paused on the first frame.
    `⏏ EJECT` at the right of the title unloads the clip and returns to an empty player (the clip's marks are remembered
    and restored when it is opened again).
+   Drag the bar under the video up/down to change the video height (16:9 kept, remembered per browser);
+   double-click the bar to go back to full width.
    After opening a subclip to check the result, `↩ 녹화클립 로드` (load recorded clip) reopens the last recorded clip
    at the same playhead position (shown when something other than a recorded clip is open or after EJECT; remembered
    with the session across reloads).
