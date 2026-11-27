@@ -149,7 +149,17 @@ started; next to it is the server hostname (the browser tab title is `instantcli
 4. **Media browser** — recorded clips (REC = recording) below recording control; subclips in the wide list below the
    edit panel. New folder, rename (F2), delete (Del), Ctrl/Shift multi-select, subclip download. New subclips are saved
    in the current folder of the right-hand panel.
-   Sorting: name / creation time (file modification time), ↓↑ button reverses (remembered per panel by the browser).
+   Sorting: click a column header (이름 name / 길이 duration / 용량 size / 날짜 date); clicking the same header again
+   reverses it (▲▼ shows which; remembered per panel by the browser). Folders stay on top.
+   Keyboard (click the list first): `↑` `↓` `PgUp` `PgDn` `Home` `End` move the cursor (outlined row), `Shift`+move selects
+   a range, `Space` toggles the cursor row, `Enter` opens a folder / loads a clip, `Backspace` goes to the parent folder,
+   `Del` deletes, `F2` renames, `Ctrl+A` selects all, `Esc` clears. Rows that cannot be changed now (recording, encoding,
+   proxy being built; red name, reason on hover) are skipped by `Ctrl+A` and range selection.
+   With nothing selected, the buttons and keys act on the cursor row. Deleting several items deletes what it can and
+   lists the ones it could not. The header shows the folder/file count, total size, clips recording and free space.
+   Streaming to another player: drag a file onto mpv / VLC, or `🔗 URL` copies its URL for "open network stream"
+   (HTTP Range, so seeking works; a clip still recording plays up to the length it had when opened).
+   Mutations and refusals are logged with the client IP.
    Moving: drag items (several if selected) onto a folder row to move them into it, or onto the `↑` button to move them to the parent folder.
    If even one name already exists at the target, nothing is moved. A subclip being encoded cannot be moved or deleted.
    Renaming/deleting a recorded clip also handles its proxy and thumbnails; a clip being recorded and the sources of

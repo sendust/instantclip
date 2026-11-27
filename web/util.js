@@ -80,3 +80,14 @@ setInterval(() => {
   const d = new Date();
   $("#clock").textContent = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }, 500);
+
+/* clipboard: navigator.clipboard needs a secure context, which plain http://<ip> is not */
+async function copyText(s) {
+  try { await navigator.clipboard.writeText(s); return; } catch (_) {}
+  const t = Object.assign(document.createElement("textarea"), { value: s });
+  t.style.cssText = "position:fixed;opacity:0";
+  document.body.append(t);
+  t.select();
+  document.execCommand("copy");
+  t.remove();
+}

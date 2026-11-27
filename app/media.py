@@ -137,8 +137,18 @@ class Media:
         if later:
             self._probe_later(later)
         files.sort(key=lambda f: f["mtime"], reverse=True)
+        # busy = cannot be renamed/moved/deleted now (the same rules as _check_not_recording)
+        for f in files:
+            try:
+                self._check_not_recording(root, f["path"])
+            except MediaError as e:
+                f["busy"] = str(e)
+        try:
+            free = shutil.disk_usage(d).free
+        except OSError:
+            free = None
         return {"root": root, "path": str(d.relative_to(base)) if d != base else "",
-                "folders": folders, "files": files, "rev": self.rev}
+                "folders": folders, "files": files, "rev": self.rev, "free": free}
 
     def _probe_later(self, paths: list[Path]):
         # at most once a minute per file: one still being copied in changes on every listing, and each
@@ -392,13 +402,13 @@ class Media:
         if real != base and base not in real.parents:
             raise MediaError("링크로 연결된 외부 폴더는 변경할 수 없습니다")
 
-    def mkdir(self, root, rel, name):
+    def mkdir(self, root, rel, name, who=""):
         self._check_local(root, self.resolve(root, rel))
         d = self.resolve(root, rel) / clean_name(name)
         if d.exists():
             raise MediaError("이미 존재합니다")
         d.mkdir(parents=True)
-        log.info("mkdir %s:%s", root, d)
+        log.info("mkdir %s:%s (client %s)", root, d, who)
         self.bump()
 
     def _move_side(self, src_rel: str, dst_rel: str):
@@ -409,7 +419,7 @@ class Media:
                 t.parent.mkdir(parents=True, exist_ok=True)
                 os.replace(s, t)
 
-    def rename(self, root, rel, new_name):
+    def rename(self, root, rel, new_name, who=""):
         if not rel:
             raise MediaError("루트는 변경할 수 없습니다")
         self._check_not_recording(root, rel)
@@ -427,10 +437,10 @@ class Media:
         os.replace(p, t)
         if root == "capture":
             self._move_side(rel, str(t.relative_to(base)))
-        log.info("rename %s:%s -> %s", root, rel, t.name)
+        log.info("rename %s:%s -> %s (client %s)", root, rel, t.name, who)
         self.bump()
 
-    def move(self, root, rels: list[str], dest: str) -> int:
+    def move(self, root, rels: list[str], dest: str, who="") -> int:
         """Move files/folders into folder dest (same root). Capture clips take proxy/thumbnail along."""
         d = self.resolve(root, dest)
         if not d.is_dir():
@@ -453,32 +463,43 @@ class Media:
                 continue
             if t.exists():
                 raise MediaError(f"대상 폴더에 같은 이름이 있습니다: {p.name}")
+            # a move is a rename only: across filesystems it would silently turn into a long copy
+            if p.lstat().st_dev != d.stat().st_dev:
+                raise MediaError(f"다른 디스크(파일시스템)로는 이동할 수 없습니다: {p.name}")
             todo.append((rel, p, t))
         for rel, p, t in todo:   # all checks passed: nothing is half-moved on a name clash
             os.replace(p, t)
             if root == "capture":
                 self._move_side(rel, str(t.relative_to(base)))
-            log.info("move %s:%s -> %s", root, rel, t.relative_to(base))
+            log.info("move %s:%s -> %s (client %s)", root, rel, t.relative_to(base), who)
         self.bump()
         return len(todo)
 
-    def delete(self, root, rels: list[str]):
+    def delete(self, root, rels: list[str], who="") -> list[dict]:
+        """Per-item results: one clip that is recording (or locked) does not fail the whole selection."""
+        out = []
         for rel in rels:
-            if not rel:
-                raise MediaError("루트는 삭제할 수 없습니다")
-            self._check_not_recording(root, rel)
-            p = self.resolve(root, rel)
-            self._check_local(root, p)
-            if p.is_dir():
-                shutil.rmtree(p)
-            elif p.exists():
-                p.unlink()
-            if root == "capture":
-                for side in (self.proxy_dir(rel), self.thumb_dir(rel)):
-                    if side.exists():
-                        shutil.rmtree(side, ignore_errors=True)
-            log.info("delete %s:%s", root, rel)
+            try:
+                if not rel:
+                    raise MediaError("루트는 삭제할 수 없습니다")
+                self._check_not_recording(root, rel)
+                p = self.resolve(root, rel)
+                self._check_local(root, p)
+                if p.is_dir():
+                    shutil.rmtree(p)
+                elif p.exists():
+                    p.unlink()
+                if root == "capture":
+                    for side in (self.proxy_dir(rel), self.thumb_dir(rel)):
+                        if side.exists():
+                            shutil.rmtree(side, ignore_errors=True)
+                log.info("delete %s:%s (client %s)", root, rel, who)
+                out.append({"path": rel, "ok": True})
+            except (MediaError, OSError) as e:
+                log.warning("delete %s:%s refused: %s (client %s)", root, rel, e, who)
+                out.append({"path": rel, "ok": False, "error": str(e)})
         self.bump()
+        return out
 
     # ---------- proxy generation for clips that have none ----------
     async def make_proxy(self, rel: str):

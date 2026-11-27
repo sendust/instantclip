@@ -86,8 +86,14 @@ app = FastAPI(title="instantclip", lifespan=lifespan)
 
 
 @app.exception_handler(MediaError)
-async def media_error(_, e: MediaError):
+async def media_error(request: Request, e: MediaError):
+    if request.method != "GET":   # refused mutations go to the log with who asked
+        log.warning("%s refused: %s (client %s)", request.url.path, e, _who(request))
     return JSONResponse({"detail": str(e)}, status_code=400)
+
+
+def _who(request: Request) -> str:
+    return request.client.host if request.client else "?"
 
 
 @app.middleware("http")
@@ -227,29 +233,30 @@ async def files(root: str, path: str = ""):
 
 
 @app.post("/api/files/mkdir")
-async def files_mkdir(r: MkdirReq):
-    media.mkdir(_root(r.root), r.path, r.name)
+async def files_mkdir(r: MkdirReq, request: Request):
+    media.mkdir(_root(r.root), r.path, r.name, _who(request))
     return {"ok": True}
 
 
 @app.post("/api/files/rename")
-async def files_rename(r: RenameReq):
-    media.rename(_root(r.root), r.path, r.name)
+async def files_rename(r: RenameReq, request: Request):
+    media.rename(_root(r.root), r.path, r.name, _who(request))
     return {"ok": True}
 
 
 @app.post("/api/files/move")
-async def files_move(r: MoveReq):
-    return {"moved": media.move(_root(r.root), r.paths, r.dest)}
+async def files_move(r: MoveReq, request: Request):
+    return {"moved": media.move(_root(r.root), r.paths, r.dest, _who(request))}
 
 
 @app.post("/api/files/delete")
-async def files_delete(r: DeleteReq):
-    media.delete(_root(r.root), r.paths)
-    return {"ok": True}
+async def files_delete(r: DeleteReq, request: Request):
+    res = media.delete(_root(r.root), r.paths, _who(request))
+    return {"ok": all(x["ok"] for x in res), "results": res}
 
 
-@app.get("/api/files/download")
+# HEAD too: mpv / VLC probe with it before streaming (Range requests are served by FileResponse)
+@app.api_route("/api/files/download", methods=["GET", "HEAD"])
 async def files_download(root: str, path: str, inline: bool = False):
     p = media.resolve(_root(root), path)
     if not p.is_file():
